@@ -7,6 +7,9 @@ const {
   getProductOffers,
   mapRapidProductToPicksy,
   parseInrPrice,
+  cleanProductSlug,
+  pickBestMatchingProduct,
+  isInflatedReseller,
 } = require('../utils/rapidApiService');
 
 // @desc    Get all products with filtering, search, sorting & dynamic decision engine data
@@ -331,11 +334,8 @@ const analyzeUrl = async (req, res, next) => {
       extractedSlug = pathSegments[0];
     }
 
-    // Clean up slug into keywords
-    const keywords = decodeURIComponent(extractedSlug)
-      .replace(/[-_+]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
+    // Clean up slug into keywords (handles camelCase & attached dimensions like "toy20cm" -> "toy 20 cm")
+    const keywords = cleanProductSlug(extractedSlug);
 
     // Deterministic hash seed based on canonical URL and slug
     const seed = getDeterministicHash(canonicalUrl || keywords);
@@ -531,17 +531,45 @@ const analyzeUrl = async (req, res, next) => {
     }
 
     // 2.5: RapidAPI Real-Time Product Search Integration
-    // When analyzing a real pasted link, attempt live query to get authentic photo, prices & store offers
-    const searchQuery = (fetchedTitle || keywords || '').trim();
-    if (searchQuery && process.env.RAPIDAPI_KEY) {
+    // When analyzing a real pasted link, attempt live query with clean slug & platform suffix
+    const cleanSlug = keywords || fetchedTitle || '';
+    if (cleanSlug && process.env.RAPIDAPI_KEY) {
       try {
-        const rapidResults = await searchRapidApi(searchQuery, 3);
+        // Formulate platform-specific search query
+        let platformSuffix = 'amazon';
+        if (detectedPlatform === 'Flipkart' || urlObj.hostname.includes('flipkart')) {
+          platformSuffix = 'flipkart';
+        } else if (detectedPlatform === 'Tata CliQ' || urlObj.hostname.includes('tatacliq')) {
+          platformSuffix = 'tatacliq';
+        } else if (detectedPlatform === 'Myntra' || urlObj.hostname.includes('myntra')) {
+          platformSuffix = 'myntra';
+        }
+
+        const primaryQuery = `${cleanSlug} ${platformSuffix}`.trim();
+        const fallbackQuery = cleanSlug.trim();
+
+        // Query RapidAPI with limit 8 to have a rich pool for Indian platform matching
+        let rapidResults = await searchRapidApi(primaryQuery, 8);
+
+        // Fallback to plain cleanSlug if primary query returns no results or only inflated resellers
+        if (!rapidResults || rapidResults.length === 0 || rapidResults.every(isInflatedReseller)) {
+          const fallbackResults = await searchRapidApi(fallbackQuery, 8);
+          if (fallbackResults && fallbackResults.length > 0) {
+            rapidResults = fallbackResults;
+          }
+        }
+
         if (rapidResults && rapidResults.length > 0) {
-          const topResult = rapidResults[0];
+          // Smart selection: Excludes inflated import resellers (desertcart, ubuy, etc.),
+          // prefers matching Indian platform and title keyword/brand overlap
+          const topResult = pickBestMatchingProduct(rapidResults, {
+            detectedPlatform,
+            cleanSlug,
+          });
 
           // Fetch multi-store offers if available
           let liveOffers = null;
-          if (topResult.product_id) {
+          if (topResult && topResult.product_id) {
             try {
               liveOffers = await getProductOffers(topResult.product_id);
             } catch (offerErr) {

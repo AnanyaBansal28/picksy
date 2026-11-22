@@ -8,6 +8,173 @@ const { getPlatformSearchUrl, calculateDecisionMetrics } = require('./decisionEn
 
 const RAPIDAPI_HOST = process.env.RAPIDAPI_HOST || 'real-time-product-search.p.rapidapi.com';
 
+// Overpriced international import resellers known to charge inflated prices with cross-border shipping
+const INFLATED_IMPORT_SITES = [
+  'desertcart',
+  'ubuy',
+  'ebay',
+  'fishpond',
+  'grandado',
+  'fruugo',
+  'u-buy',
+  'desert-cart',
+];
+
+// Major authentic Indian domestic platforms & marketplaces
+const AUTHENTIC_INDIAN_PLATFORMS = [
+  'amazon',
+  'amazon.in',
+  'flipkart',
+  'tatacliq',
+  'tata cliq',
+  'firstcry',
+  'meesho',
+  'jiomart',
+  'croma',
+  'reliance',
+  'reliance digital',
+  'myntra',
+  'nykaa',
+  'blinkit',
+  'zepto',
+  'instamart',
+];
+
+/**
+ * Check if a product listing is from an overpriced international reseller
+ */
+const isInflatedReseller = (product) => {
+  if (!product) return false;
+  const store = String(product.store_name || product.offer?.store_name || product.merchant || '').toLowerCase();
+  const pageUrl = String(product.product_page_url || product.offer?.offer_page_url || product.offer_page_url || '').toLowerCase();
+
+  for (const site of INFLATED_IMPORT_SITES) {
+    if (store.includes(site) || pageUrl.includes(site)) {
+      return true;
+    }
+  }
+  return false;
+};
+
+/**
+ * Check if a product listing is from an authentic Indian store/marketplace
+ */
+const isAuthenticIndianStore = (product) => {
+  if (!product) return false;
+  const store = String(product.store_name || product.offer?.store_name || product.merchant || '').toLowerCase();
+  const pageUrl = String(product.product_page_url || product.offer?.offer_page_url || product.offer_page_url || '').toLowerCase();
+
+  for (const plat of AUTHENTIC_INDIAN_PLATFORMS) {
+    if (store.includes(plat) || pageUrl.includes(plat)) {
+      return true;
+    }
+  }
+  return false;
+};
+
+/**
+ * Clean URL slug into human-readable product title keywords:
+ * e.g. "SCOOBA-Fabric-Piggy-toy20cm-Height" -> "SCOOBA Fabric Piggy toy 20 cm Height"
+ */
+const cleanProductSlug = (rawSlug) => {
+  if (!rawSlug) return '';
+  let str = decodeURIComponent(rawSlug);
+
+  // 1. Separate camelCase words: e.g. "ColorFit" -> "Color Fit", "PiggyToy" -> "Piggy Toy"
+  str = str.replace(/([a-z]{2,})([A-Z][a-z]+)/g, '$1 $2');
+
+  // 2. Separate attached letters and numbers: e.g. "toy20cm" -> "toy 20 cm", "iPhone15" -> "iPhone 15"
+  str = str.replace(/([a-zA-Z]+)(\d+)/g, '$1 $2');
+  str = str.replace(/(\d+)([a-zA-Z]+)/g, '$1 $2');
+
+  // 3. Replace delimiters (-, _, +, /, .) with spaces
+  str = str.replace(/[-_+/.]/g, ' ');
+
+  // 4. Restore common brand spellings
+  str = str.replace(/\bbo At\b/gi, 'boAt');
+
+  // 5. Clean whitespace
+  return str.replace(/\s+/g, ' ').trim();
+};
+
+/**
+ * Pick the best matching product from RapidAPI results:
+ * - Filters out inflated import resellers (desertcart, ubuy, ebay) when Indian platforms are available
+ * - Prefers results matching the target platform (e.g. Amazon for amazon.in links)
+ * - Scores keyword overlap with special weight on brand and dimensions/specs
+ */
+const pickBestMatchingProduct = (products, { detectedPlatform = 'Amazon', cleanSlug = '' } = {}) => {
+  if (!Array.isArray(products) || products.length === 0) return null;
+
+  // Filter out overpriced international import resellers if authentic Indian platforms exist
+  const nonInflated = products.filter((p) => !isInflatedReseller(p));
+  const candidatePool = nonInflated.length > 0 ? nonInflated : products;
+
+  const targetPlatformLower = String(detectedPlatform || '').toLowerCase();
+  const slugWords = cleanSlug
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((w) => w.length > 1 && !['the', 'and', 'with', 'for', 'in', 'height', 'of', 'to'].includes(w));
+
+  const brandWord = slugWords[0] || '';
+  const numbersInSlug = cleanSlug.match(/\d+(?:\s*[a-zA-Z]+)?/g) || [];
+
+  const scored = candidatePool.map((product) => {
+    let score = 0;
+    const titleLower = String(product.product_title || product.title || '').toLowerCase();
+    const storeLower = String(product.store_name || product.offer?.store_name || '').toLowerCase();
+
+    // 1. Direct platform match with pasted link (highest priority)
+    if (targetPlatformLower.includes('amazon') && storeLower.includes('amazon')) {
+      score += 100;
+    } else if (targetPlatformLower.includes('flipkart') && storeLower.includes('flipkart')) {
+      score += 100;
+    } else if (storeLower.includes(targetPlatformLower)) {
+      score += 80;
+    }
+
+    // 2. Authentic Indian platform bonus
+    if (isAuthenticIndianStore(product)) {
+      score += 40;
+    }
+
+    // 3. Severe penalty if an inflated reseller slips through
+    if (isInflatedReseller(product)) {
+      score -= 150;
+    }
+
+    // 4. Brand match (first distinctive word of the slug, e.g. "SCOOBA", "Noise", "boAt")
+    if (brandWord && (titleLower.includes(brandWord) || titleLower.startsWith(brandWord))) {
+      score += 60;
+    }
+
+    // 5. Keyword overlap
+    for (const word of slugWords) {
+      if (titleLower.includes(word)) {
+        score += 12;
+      }
+    }
+
+    // 6. Number / Dimension match (e.g. 20 cm, 128 gb, 450)
+    for (const num of numbersInSlug) {
+      const cleanNum = num.replace(/\s+/g, '').toLowerCase();
+      if (titleLower.replace(/\s+/g, '').includes(cleanNum)) {
+        score += 25;
+      }
+    }
+
+    // 7. Product photo presence
+    if (product.product_photos && product.product_photos.length > 0) {
+      score += 10;
+    }
+
+    return { product, score };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+  return scored[0]?.product || candidatePool[0] || products[0];
+};
+
 const CATEGORY_IMAGES = {
   smartphones: [
     'https://images.unsplash.com/photo-1695048133142-1a20484d2569?w=600&auto=format&fit=crop&q=80',
@@ -189,7 +356,7 @@ const searchRapidApi = async (query, limit = 5) => {
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 6000); // 6s timeout
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
 
     const url = `https://${RAPIDAPI_HOST}/search?q=${encodeURIComponent(
       cleanQuery
@@ -231,7 +398,7 @@ const getProductOffers = async (productId) => {
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3500); // 3.5s timeout
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout
 
     const url = `https://${RAPIDAPI_HOST}/product-offers?product_id=${encodeURIComponent(
       productId
@@ -319,6 +486,9 @@ const mapRapidProductToPicksy = (
   // 1. If explicit store offers exist from RapidAPI
   const storeOffers = Array.isArray(offers) ? offers : [];
   for (const offer of storeOffers) {
+    if (isInflatedReseller({ store_name: offer.store_name, product_page_url: offer.offer_page_url })) {
+      continue;
+    }
     const rawStore = offer.store_name || offer.merchant || '';
     let platformName = rawStore;
     const storeLower = rawStore.toLowerCase();
@@ -365,7 +535,11 @@ const mapRapidProductToPicksy = (
   }
 
   // 2. If the single product had a specific store_name in the search response
-  if (rawProduct.store_name && !addedPlatforms.has(rawProduct.store_name.toLowerCase())) {
+  if (
+    rawProduct.store_name &&
+    !isInflatedReseller(rawProduct) &&
+    !addedPlatforms.has(rawProduct.store_name.toLowerCase())
+  ) {
     let pName = rawProduct.store_name;
     const sl = pName.toLowerCase();
     if (sl.includes('amazon')) pName = 'Amazon';
@@ -485,6 +659,10 @@ module.exports = {
   detectSubCategory,
   detectBrand,
   generateHistoricalPrices,
+  cleanProductSlug,
+  pickBestMatchingProduct,
+  isInflatedReseller,
+  isAuthenticIndianStore,
   CATEGORY_IMAGES,
 };
 
