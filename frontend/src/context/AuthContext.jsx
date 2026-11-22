@@ -24,6 +24,19 @@ export const AuthProvider = ({ children }) => {
     } catch {}
     return [];
   });
+  const [totalSavings, setTotalSavings] = useState(() => {
+    try {
+      const savedUser = localStorage.getItem('picksy_user');
+      if (savedUser) {
+        const parsed = JSON.parse(savedUser);
+        if (parsed.totalSavings !== undefined) return parsed.totalSavings;
+      }
+      const localSav = localStorage.getItem('picksy_savings');
+      return localSav ? Number(localSav) : 420; // Default friendly starting savings for demo
+    } catch {
+      return 420;
+    }
+  });
 
   // Verify and sync user profile on session restore
   useEffect(() => {
@@ -34,10 +47,13 @@ export const AuthProvider = ({ children }) => {
           if (res.data?.success) {
             setUser(res.data.user);
             setWishlistIds(res.data.user.wishlist || []);
+            if (res.data.user.totalSavings !== undefined) {
+              setTotalSavings(res.data.user.totalSavings);
+              localStorage.setItem('picksy_savings', res.data.user.totalSavings.toString());
+            }
             localStorage.setItem('picksy_user', JSON.stringify(res.data.user));
           }
         } catch (err) {
-          // If token expired or invalid (401), clean up
           if (err.response?.status === 401) {
             console.warn('Session expired or invalid token:', err.response?.data?.message);
             logout();
@@ -60,6 +76,10 @@ export const AuthProvider = ({ children }) => {
         setToken(authToken);
         setUser(authUser);
         setWishlistIds(authUser.wishlist || []);
+        if (authUser.totalSavings !== undefined) {
+          setTotalSavings(authUser.totalSavings);
+          localStorage.setItem('picksy_savings', authUser.totalSavings.toString());
+        }
         return res.data;
       }
       throw new Error(res.data?.message || 'Login failed');
@@ -79,6 +99,10 @@ export const AuthProvider = ({ children }) => {
         setToken(authToken);
         setUser(authUser);
         setWishlistIds(authUser.wishlist || []);
+        if (authUser.totalSavings !== undefined) {
+          setTotalSavings(authUser.totalSavings);
+          localStorage.setItem('picksy_savings', authUser.totalSavings.toString());
+        }
         return res.data;
       }
       throw new Error(res.data?.message || 'Registration failed');
@@ -98,6 +122,27 @@ export const AuthProvider = ({ children }) => {
     setToken(null);
     setUser(null);
     setWishlistIds([]);
+  };
+
+  const recordSavings = async (amount, source) => {
+    const val = Number(amount) || 0;
+    if (val <= 0) return totalSavings;
+    const newTotal = totalSavings + val;
+    setTotalSavings(newTotal);
+    localStorage.setItem('picksy_savings', newTotal.toString());
+    if (user) {
+      const updatedUser = { ...user, totalSavings: newTotal };
+      setUser(updatedUser);
+      localStorage.setItem('picksy_user', JSON.stringify(updatedUser));
+    }
+    if (token) {
+      try {
+        await authService.addSavings({ amount: val, source });
+      } catch (err) {
+        console.warn('Savings sync note:', err.message);
+      }
+    }
+    return newTotal;
   };
 
   const toggleWishlist = async (productId) => {
@@ -145,6 +190,8 @@ export const AuthProvider = ({ children }) => {
         isAuthenticated: !!user,
         loading,
         wishlistIds,
+        totalSavings,
+        recordSavings,
         login,
         register,
         quickDemoLogin,

@@ -24,7 +24,6 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response && error.response.status === 401) {
-      // If unauthorized on protected routes, don't crash
       if (localStorage.getItem('picksy_token')) {
         console.warn('Session expired. Logging out.');
       }
@@ -41,12 +40,14 @@ export const authService = {
   forgotPassword: (data) => api.post('/auth/forgot-password', data),
   verifyOtp: (data) => api.post('/auth/verify-otp', data),
   resetPassword: (data) => api.post('/auth/reset-password', data),
+  addSavings: (data) => api.post('/auth/add-savings', data),
 };
 
 export const productService = {
   getAll: (params) => api.get('/products', { params }),
   getById: (id) => api.get(`/products/${id}`),
   getSpotlightDeals: () => api.get('/products/spotlight/deals'),
+  analyzeUrl: (data) => api.post('/products/analyze-url', data),
 };
 
 export const cartService = {
@@ -62,8 +63,8 @@ export const wishlistService = {
 export const alertService = {
   getAll: () => api.get('/alerts'),
   create: (data) => api.post('/alerts', data),
+  simulateDrop: (data) => api.post('/alerts/simulate-drop', data),
   delete: (id) => api.delete(`/alerts/${id}`),
 };
 
 export default api;
-

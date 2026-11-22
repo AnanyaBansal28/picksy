@@ -73,6 +73,9 @@ let memoryUsers = [
     password: bcrypt.hashSync('picksy123', 10),
     role: 'user',
     wishlist: ['prod_101', 'prod_104'],
+    totalSavings: 420,
+    resetOtp: null,
+    resetOtpExpiry: null,
     createdAt: new Date().toISOString(),
   },
 ];
@@ -201,6 +204,14 @@ const inMemoryStore = {
         user.resetOtpExpiry = null;
       }
       return user;
+    },
+    addSavings: async (userId, amount) => {
+      const user = memoryUsers.find((u) => u._id === userId || u.id === userId) || memoryUsers[0];
+      if (user) {
+        user.totalSavings = (user.totalSavings || 0) + amount;
+        return user.totalSavings;
+      }
+      return amount;
     },
   },
 

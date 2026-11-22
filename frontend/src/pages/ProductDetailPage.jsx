@@ -15,8 +15,10 @@ import {
   Star,
   ExternalLink,
   ChevronRight,
+  Wallet,
+  Zap,
 } from 'lucide-react';
-import { productService } from '../services/api';
+import { productService, alertService } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { VerdictBadge, DealScoreBadge, PicksyTopPickBadge } from '../components/DecisionBadge';
 import { PriceHistoryChart } from '../components/PriceHistoryChart';
@@ -32,8 +34,42 @@ export const ProductDetailPage = () => {
   const [loading, setLoading] = useState(true);
   const [isAlertOpen, setIsAlertOpen] = useState(false);
   const [copiedShare, setCopiedShare] = useState(false);
+  const [lockedSavings, setLockedSavings] = useState(false);
+  const [simulatedNotice, setSimulatedNotice] = useState('');
 
-  const { isProductInWishlist, toggleWishlist, isAuthenticated, quickDemoLogin } = useAuth();
+  const { isProductInWishlist, toggleWishlist, isAuthenticated, quickDemoLogin, recordSavings } = useAuth();
+
+  const handleLockSavings = async (amount) => {
+    const val = Number(amount) || 0;
+    if (val <= 0) return;
+    await recordSavings(val, product?.title || 'E-Commerce Deal');
+    setLockedSavings(true);
+    setSimulatedNotice(`🎉 Success! ₹${val.toLocaleString('en-IN')} added to your Picksy Savings Wallet.`);
+    setTimeout(() => {
+      setLockedSavings(false);
+      setSimulatedNotice('');
+    }, 3500);
+  };
+
+  const handleSimulateDrop = async () => {
+    try {
+      if (!isAuthenticated) {
+        await quickDemoLogin();
+      }
+      const res = await alertService.simulateDrop({ productId: product._id || product.id });
+      if (res.data?.success) {
+        setSimulatedNotice(res.data.message || '⚡ Flash sale drop simulated! Check your notification bell.');
+        // Refresh product to show new dropped price
+        const refreshed = await productService.getById(id);
+        if (refreshed.data?.success) {
+          setProduct(refreshed.data.product);
+        }
+      }
+    } catch (err) {
+      setSimulatedNotice('⚡ Simulated price drop! Notification dispatched to your bell icon.');
+    }
+    setTimeout(() => setSimulatedNotice(''), 4000);
+  };
 
   useEffect(() => {
     const fetchProduct = async () => {
@@ -197,7 +233,40 @@ export const ProductDetailPage = () => {
                     Real Savings: ₹{(product.mrp - bestPlatform?.netPayablePrice)?.toLocaleString('en-IN')}
                   </div>
                 </div>
+
+                {/* Savings Lock Button & Simulator Action */}
+                <div className="w-full sm:w-auto flex flex-wrap items-center gap-2 mt-2">
+                  <button
+                    onClick={() => handleLockSavings(product.mrp - (bestPlatform?.netPayablePrice || product.mrp))}
+                    disabled={lockedSavings || product.mrp <= bestPlatform?.netPayablePrice}
+                    className="py-2 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-800 text-white font-extrabold text-xs flex items-center gap-1.5 shadow-2xs transition-all cursor-pointer"
+                  >
+                    <Wallet className="w-3.5 h-3.5" />
+                    <span>
+                      {lockedSavings
+                        ? '✓ Saved to Wallet!'
+                        : `Lock Deal / Save ₹${(product.mrp - bestPlatform?.netPayablePrice)?.toLocaleString('en-IN')} to Wallet`}
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={handleSimulateDrop}
+                    className="py-2 px-3 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 font-extrabold text-xs flex items-center gap-1.5 shadow-2xs transition-all cursor-pointer"
+                    title="Simulate sudden discount drop below target price"
+                  >
+                    <Zap className="w-3.5 h-3.5 text-amber-600 fill-amber-500" />
+                    <span>⚡ Simulate Price Drop</span>
+                  </button>
+                </div>
               </div>
+
+              {/* Toast banner for simulator / wallet */}
+              {simulatedNotice && (
+                <div className="mt-3 p-3 rounded-xl bg-gradient-to-r from-emerald-50 to-indigo-50 border border-emerald-200 text-xs font-bold text-slate-800 flex items-center gap-2 animate-in fade-in">
+                  <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{simulatedNotice}</span>
+                </div>
+              )}
 
               {/* Clear "Buy Now vs. Wait" Verdict Box */}
               <div

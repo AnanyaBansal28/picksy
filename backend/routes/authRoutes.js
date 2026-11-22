@@ -7,6 +7,7 @@ const {
   forgotPassword,
   verifyOtp,
   resetPassword,
+  addSavings,
 } = require('../controllers/authController');
 const { protect } = require('../middleware/auth');
 
@@ -18,5 +19,8 @@ router.get('/me', protect, getMe);
 router.post('/forgot-password', forgotPassword);
 router.post('/verify-otp', verifyOtp);
 router.post('/reset-password', resetPassword);
+
+// Total Savings Wallet
+router.post('/add-savings', protect, addSavings);
 
 module.exports = router;

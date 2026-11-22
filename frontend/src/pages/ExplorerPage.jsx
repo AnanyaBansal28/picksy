@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams, Link } from 'react-router-dom';
+import { useSearchParams, Link, useNavigate } from 'react-router-dom';
 import {
   Search,
   SlidersHorizontal,
@@ -9,6 +9,9 @@ import {
   Sparkles,
   X,
   ExternalLink,
+  Link as LinkIcon,
+  Loader2,
+  AlertCircle,
 } from 'lucide-react';
 import { productService } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -38,11 +41,23 @@ export const ExplorerPage = () => {
   const [dealFilter, setDealFilter] = useState(initialDealFilter);
   const [sortBy, setSortBy] = useState('deal_score_desc');
 
+  // URL Analyzer state
+  const [isAnalyzingUrl, setIsAnalyzingUrl] = useState(false);
+  const [urlError, setUrlError] = useState('');
+
   // Price Alert Modal State
   const [alertProduct, setAlertProduct] = useState(null);
   const [isAlertOpen, setIsAlertOpen] = useState(false);
 
   const { isProductInWishlist, toggleWishlist, isAuthenticated, quickDemoLogin } = useAuth();
+  const navigate = useNavigate();
+
+  const isLinkInput =
+    search.trim().startsWith('http://') ||
+    search.trim().startsWith('https://') ||
+    search.trim().includes('amazon.') ||
+    search.trim().includes('flipkart.') ||
+    search.trim().includes('myntra.');
 
   const fetchProducts = async () => {
     setLoading(true);
@@ -71,7 +86,30 @@ export const ExplorerPage = () => {
 
   const handleSearchSubmit = (e) => {
     e.preventDefault();
-    fetchProducts();
+    if (isLinkInput) {
+      handleAnalyzeUrl();
+    } else {
+      fetchProducts();
+    }
+  };
+
+  const handleAnalyzeUrl = async () => {
+    setUrlError('');
+    if (!search.trim()) return;
+
+    setIsAnalyzingUrl(true);
+    try {
+      const res = await productService.analyzeUrl({ url: search.trim() });
+      if (res.data?.success && res.data.product) {
+        navigate(`/product/${res.data.product._id || res.data.product.id}`);
+      } else {
+        setUrlError('Could not parse this product link.');
+      }
+    } catch (err) {
+      setUrlError(err.response?.data?.message || 'Failed to analyze product URL.');
+    } finally {
+      setIsAnalyzingUrl(false);
+    }
   };
 
   const handleWishlistClick = async (e, productId) => {
@@ -108,33 +146,75 @@ export const ExplorerPage = () => {
               Compare Prices & Check Buy/Wait Verdicts
             </h1>
             <p className="text-xs sm:text-sm text-slate-500 mt-1 max-w-2xl">
-              Strictly verified prices across Indian stores. Search by brand or model to see live price tables, 30-day historical charts, and whether to buy now or wait.
+              Strictly verified prices across Indian stores. Search by brand or model, or paste any Amazon/Flipkart URL to analyze historical prices and deal scores.
             </p>
           </div>
 
-          {/* Search bar */}
-          <form onSubmit={handleSearchSubmit} className="relative w-full md:w-80">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search phone, laptop, shoes..."
-              className="w-full pl-9 pr-8 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 shadow-2xs"
-            />
-            {search && (
-              <button
-                type="button"
-                onClick={() => {
-                  setSearch('');
-                  fetchProducts();
-                }}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
+          {/* Unified Search & URL Analyzer Bar */}
+          <div className="w-full md:w-96">
+            <form onSubmit={handleSearchSubmit} className="relative">
+              {isLinkInput ? (
+                <LinkIcon className="w-4 h-4 text-indigo-600 absolute left-3 top-1/2 -translate-y-1/2" />
+              ) : (
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              )}
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search product or paste Amazon/Flipkart link..."
+                className={`w-full pl-9 pr-24 py-2 bg-white border rounded-xl text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 shadow-2xs transition-all ${
+                  isLinkInput
+                    ? 'border-indigo-400 focus:ring-indigo-500/20 focus:border-indigo-600'
+                    : 'border-slate-200 focus:ring-indigo-500/20 focus:border-indigo-500'
+                }`}
+              />
+              <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                {search && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearch('');
+                      fetchProducts();
+                    }}
+                    className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                {isLinkInput ? (
+                  <button
+                    type="button"
+                    onClick={handleAnalyzeUrl}
+                    disabled={isAnalyzingUrl}
+                    className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg text-[11px] font-black tracking-wide flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
+                  >
+                    {isAnalyzingUrl ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <Sparkles className="w-3 h-3" />
+                    )}
+                    <span>Analyze</span>
+                  </button>
+                ) : (
+                  <button
+                    type="submit"
+                    className="px-2.5 py-1 bg-slate-900 hover:bg-black text-white rounded-lg text-[11px] font-bold transition-all cursor-pointer shadow-2xs"
+                  >
+                    Search
+                  </button>
+                )}
+              </div>
+            </form>
+
+            {/* URL Error Message */}
+            {urlError && (
+              <div className="mt-1 text-[11px] text-rose-600 bg-rose-50 p-1.5 rounded-lg border border-rose-200 flex items-center gap-1.5">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                <span>{urlError}</span>
+              </div>
             )}
-          </form>
+          </div>
         </div>
       </div>
 
@@ -149,7 +229,7 @@ export const ExplorerPage = () => {
             <button
               key={cat}
               onClick={() => setSelectedCategory(cat)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
                 selectedCategory === cat
                   ? 'bg-indigo-600 text-white shadow-2xs font-bold'
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -162,14 +242,13 @@ export const ExplorerPage = () => {
 
         {/* Verdict & Sort Filters */}
         <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100 text-xs">
-          {/* Verdict Filter Buttons */}
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="font-bold text-slate-500 uppercase tracking-wider text-[11px] mr-1">
               Verdict Filter:
             </span>
             <button
               onClick={() => setDealFilter('ALL')}
-              className={`px-2.5 py-1 rounded-lg font-semibold transition-all ${
+              className={`px-2.5 py-1 rounded-lg font-semibold transition-all cursor-pointer ${
                 dealFilter === 'ALL'
                   ? 'bg-slate-900 text-white font-bold'
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -179,7 +258,7 @@ export const ExplorerPage = () => {
             </button>
             <button
               onClick={() => setDealFilter('BUY_NOW')}
-              className={`px-2.5 py-1 rounded-lg font-semibold transition-all ${
+              className={`px-2.5 py-1 rounded-lg font-semibold transition-all cursor-pointer ${
                 dealFilter === 'BUY_NOW'
                   ? 'bg-emerald-600 text-white font-bold'
                   : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
@@ -189,7 +268,7 @@ export const ExplorerPage = () => {
             </button>
             <button
               onClick={() => setDealFilter('EXCEPTIONAL')}
-              className={`px-2.5 py-1 rounded-lg font-semibold transition-all ${
+              className={`px-2.5 py-1 rounded-lg font-semibold transition-all cursor-pointer ${
                 dealFilter === 'EXCEPTIONAL'
                   ? 'bg-indigo-600 text-white font-bold'
                   : 'bg-indigo-50 text-indigo-800 hover:bg-indigo-100'
@@ -199,27 +278,24 @@ export const ExplorerPage = () => {
             </button>
             <button
               onClick={() => setDealFilter('WAIT')}
-              className={`px-2.5 py-1 rounded-lg font-semibold transition-all ${
+              className={`px-2.5 py-1 rounded-lg font-semibold transition-all cursor-pointer ${
                 dealFilter === 'WAIT'
                   ? 'bg-amber-600 text-white font-bold'
                   : 'bg-amber-50 text-amber-800 hover:bg-amber-100'
               }`}
             >
-              WAIT (Spikes)
+              WAIT Only
             </button>
           </div>
 
-          {/* Sort Dropdown */}
           <div className="flex items-center gap-2">
             <SlidersHorizontal className="w-3.5 h-3.5 text-slate-400" />
-            <span className="font-semibold text-slate-500">Sort by:</span>
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value)}
-              className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              className="bg-slate-50 border border-slate-200 text-xs font-semibold rounded-lg px-2.5 py-1 text-slate-700 focus:outline-none focus:border-indigo-500 cursor-pointer"
             >
-              <option value="deal_score_desc">Real Deal Score (High to Low)</option>
-              <option value="verdict">Buy Now Deals First</option>
+              <option value="deal_score_desc">Best Real Deal Score</option>
               <option value="price_asc">Price: Low to High</option>
               <option value="price_desc">Price: High to Low</option>
             </select>
@@ -227,7 +303,7 @@ export const ExplorerPage = () => {
         </div>
       </div>
 
-      {/* Product Grid */}
+      {/* Clean, Decluttered Product Grid */}
       {loading ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {[1, 2, 3, 4, 5, 6].map((n) => (
@@ -255,7 +331,7 @@ export const ExplorerPage = () => {
               setDealFilter('ALL');
               fetchProducts();
             }}
-            className="mt-4 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl text-xs font-bold hover:bg-indigo-100"
+            className="mt-4 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl text-xs font-bold hover:bg-indigo-100 cursor-pointer"
           >
             Reset Filters
           </button>
@@ -269,6 +345,7 @@ export const ExplorerPage = () => {
             const dealScore = decision?.realDealScore?.score;
             const pId = product._id || product.id;
             const saved = isProductInWishlist(pId);
+            const savings = product.mrp - (bestPlatform?.netPayablePrice || product.mrp);
 
             return (
               <div
@@ -279,14 +356,14 @@ export const ExplorerPage = () => {
                 <div className="absolute top-7 right-7 z-10 flex items-center gap-1.5">
                   <button
                     onClick={(e) => handleAlertClick(e, product)}
-                    className="p-2 rounded-xl bg-white/90 backdrop-blur-xs text-slate-500 hover:text-amber-600 hover:bg-amber-50 border border-slate-200/80 shadow-2xs transition-all"
+                    className="p-2 rounded-xl bg-white/90 backdrop-blur-xs text-slate-500 hover:text-amber-600 hover:bg-amber-50 border border-slate-200/80 shadow-2xs transition-all cursor-pointer"
                     title="Set Target Price Drop Alert"
                   >
                     <Bell className="w-3.5 h-3.5" />
                   </button>
                   <button
                     onClick={(e) => handleWishlistClick(e, pId)}
-                    className={`p-2 rounded-xl bg-white/90 backdrop-blur-xs border border-slate-200/80 shadow-2xs transition-all ${
+                    className={`p-2 rounded-xl bg-white/90 backdrop-blur-xs border border-slate-200/80 shadow-2xs transition-all cursor-pointer ${
                       saved ? 'text-rose-500 bg-rose-50' : 'text-slate-500 hover:text-rose-500'
                     }`}
                     title={saved ? 'Saved' : 'Save to Watchlist'}
@@ -296,9 +373,10 @@ export const ExplorerPage = () => {
                 </div>
 
                 <div>
+                  {/* Strict Fixed-Height Image Container */}
                   <Link
                     to={`/product/${pId}`}
-                    className="block relative w-full h-48 rounded-xl overflow-hidden bg-[#F8FAFC] border border-slate-100 flex items-center justify-center p-3 mb-4"
+                    className="block relative w-full h-48 rounded-xl overflow-hidden bg-[#F8FAFC] border border-slate-100 flex items-center justify-center p-4 mb-4"
                   >
                     <img
                       src={product.image}
@@ -316,27 +394,24 @@ export const ExplorerPage = () => {
                   </div>
 
                   <Link to={`/product/${pId}`}>
-                    <h3 className="text-base font-bold text-slate-900 group-hover:text-indigo-600 transition-colors h-12 line-clamp-2 leading-snug mb-2.5">
+                    <h3 className="text-base font-bold text-slate-900 group-hover:text-indigo-600 transition-colors h-11 line-clamp-2 leading-snug mb-3">
                       {product.title}
                     </h3>
                   </Link>
-
-                  {/* Summary Verdict Callout */}
-                  <div className="text-xs text-slate-600 bg-slate-50 p-2.5 rounded-xl border border-slate-100 mb-4 leading-relaxed font-medium">
-                    {decision?.verdict?.summary || 'Historical pricing tracked.'}
-                  </div>
                 </div>
 
-                {/* Footer Section */}
+                {/* Simplified Crisp Footer */}
                 <div className="pt-3 border-t border-slate-100">
-                  <div className="flex items-center justify-between text-xs mb-3">
+                  <div className="flex items-center justify-between text-xs mb-2">
                     <DealScoreBadge score={dealScore} />
-                    <span className="text-[11px] font-semibold text-slate-600">
-                      Cheapest on <strong className="text-slate-900">{bestPlatform?.platform}</strong>
-                    </span>
+                    {savings > 0 && (
+                      <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md">
+                        Save ₹{savings.toLocaleString('en-IN')}
+                      </span>
+                    )}
                   </div>
 
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-baseline justify-between mb-3">
                     <div>
                       <div className="text-xl font-black text-slate-900">
                         ₹{bestPlatform?.netPayablePrice?.toLocaleString('en-IN')}
@@ -345,15 +420,19 @@ export const ExplorerPage = () => {
                         MRP ₹{product.mrp?.toLocaleString('en-IN')}
                       </div>
                     </div>
-
-                    <Link
-                      to={`/product/${pId}`}
-                      className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm"
-                    >
-                      <span>Compare Prices</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </Link>
+                    <span className="text-xs font-bold text-slate-500">
+                      on {bestPlatform?.platform}
+                    </span>
                   </div>
+
+                  {/* Single Crisp CTA Button */}
+                  <Link
+                    to={`/product/${pId}`}
+                    className="w-full py-2.5 bg-slate-900 group-hover:bg-indigo-600 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5"
+                  >
+                    <span>Picksy View</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </Link>
                 </div>
               </div>
             );

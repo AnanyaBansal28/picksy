@@ -37,6 +37,11 @@ const userSchema = new mongoose.Schema(
         ref: 'Product',
       },
     ],
+    // Total lifetime savings tracked by Picksy decisions
+    totalSavings: {
+      type: Number,
+      default: 0,
+    },
     // OTP fields for Forgot Password verification
     resetOtp: {
       type: String,

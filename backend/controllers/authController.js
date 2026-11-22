@@ -50,6 +50,7 @@ const registerUser = async (req, res, next) => {
           email: user.email,
           role: user.role,
           wishlist: user.wishlist || [],
+          totalSavings: user.totalSavings || 0,
         },
       });
     } else {
@@ -71,6 +72,7 @@ const registerUser = async (req, res, next) => {
           email: user.email,
           role: user.role,
           wishlist: user.wishlist || [],
+          totalSavings: user.totalSavings || 0,
         },
       });
     }
@@ -127,6 +129,7 @@ const loginUser = async (req, res, next) => {
           email: user.email,
           role: user.role,
           wishlist: user.wishlist || [],
+          totalSavings: user.totalSavings || 0,
         },
       });
     } else {
@@ -162,6 +165,7 @@ const loginUser = async (req, res, next) => {
           email: user.email,
           role: user.role,
           wishlist: user.wishlist || [],
+          totalSavings: user.totalSavings || 0,
         },
       });
     }
@@ -188,6 +192,7 @@ const getMe = async (req, res, next) => {
         email: user.email,
         role: user.role,
         wishlist: user.wishlist || [],
+        totalSavings: user.totalSavings || 0,
       },
     });
   } catch (error) {
@@ -371,7 +376,7 @@ const resetPassword = async (req, res, next) => {
 
     // Update password & clear OTP fields
     if (getIsConnected()) {
-      user.password = newPassword; // Handled by pre('save') hook
+      user.password = newPassword;
       user.resetOtp = null;
       user.resetOtpExpiry = null;
       await user.save();
@@ -391,6 +396,42 @@ const resetPassword = async (req, res, next) => {
   }
 };
 
+// @desc    Add locked deal savings to user's wallet
+// @route   POST /api/auth/add-savings
+// @access  Private
+const addSavings = async (req, res, next) => {
+  try {
+    const { amount, source } = req.body;
+    const addAmount = Math.max(0, parseInt(amount, 10) || 0);
+    const userId = req.user?._id || req.user?.id;
+
+    if (getIsConnected() && userId) {
+      const user = await User.findById(userId);
+      if (user) {
+        user.totalSavings = (user.totalSavings || 0) + addAmount;
+        await user.save();
+        return res.json({
+          success: true,
+          totalSavings: user.totalSavings,
+          added: addAmount,
+          source: source || 'Picksy Deal Optimization',
+        });
+      }
+    }
+
+    // In-memory or guest fallback
+    const newTotal = await inMemoryStore.users.addSavings(userId, addAmount);
+    return res.json({
+      success: true,
+      totalSavings: newTotal,
+      added: addAmount,
+      source: source || 'Picksy Deal Optimization',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   registerUser,
   loginUser,
@@ -398,4 +439,5 @@ module.exports = {
   forgotPassword,
   verifyOtp,
   resetPassword,
+  addSavings,
 };

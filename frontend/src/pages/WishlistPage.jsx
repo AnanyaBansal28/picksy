@@ -10,6 +10,7 @@ import {
   Clock,
   Sparkles,
   ShoppingBag,
+  Zap,
 } from 'lucide-react';
 import { wishlistService, alertService } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -59,6 +60,28 @@ export const WishlistPage = () => {
       setAlerts((prev) => prev.filter((a) => (a._id || a.id) !== alertId));
     } catch (err) {
       console.error('Failed to delete alert:', err);
+    }
+  };
+
+  const handleSimulateDrop = async (alertId) => {
+    try {
+      const res = await alertService.simulateDrop({ alertId });
+      if (res.data?.success) {
+        setAlerts((prev) =>
+          prev.map((a) =>
+            (a._id || a.id) === alertId
+              ? {
+                  ...a,
+                  isTriggered: true,
+                  status: 'triggered',
+                  currentPrice: res.data.droppedPrice,
+                }
+              : a
+          )
+        );
+      }
+    } catch (err) {
+      console.error('Failed to simulate price drop:', err);
     }
   };
 
@@ -287,7 +310,18 @@ export const WishlistPage = () => {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-3 self-end sm:self-center">
+                  <div className="flex flex-wrap items-center gap-3 self-end sm:self-center">
+                    {!targetMet && (
+                      <button
+                        onClick={() => handleSimulateDrop(aId)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black rounded-xl text-xs shadow-2xs transition-all cursor-pointer"
+                        title="Simulate sudden discount drop"
+                      >
+                        <Zap className="w-3.5 h-3.5 fill-slate-950" />
+                        <span>⚡ Simulate Price Drop</span>
+                      </button>
+                    )}
+
                     {targetMet ? (
                       <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-full text-xs font-bold">
                         <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />

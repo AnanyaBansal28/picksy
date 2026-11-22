@@ -18,9 +18,11 @@ import {
   ChevronRight,
   ArrowRightLeft,
   Store,
+  Wallet,
 } from 'lucide-react';
 import { productService } from '../services/api';
 import { useCart } from '../context/CartContext';
+import { useAuth } from '../context/AuthContext';
 
 const GROCERY_CATEGORIES = [
   'All',
@@ -36,6 +38,20 @@ export const QuickCommercePage = () => {
   const [category, setCategory] = useState('All');
   const [search, setSearch] = useState('');
   const [toastMessage, setToastMessage] = useState(null);
+  const [lockedSavings, setLockedSavings] = useState(false);
+
+  const { recordSavings } = useAuth();
+
+  const handleLockSavings = async (amount) => {
+    const val = Number(amount) || 45;
+    await recordSavings(val, 'Quick-Commerce Cart Split');
+    setLockedSavings(true);
+    setToastMessage(`🎉 Locked Deal! ₹${val} added to your Picksy Savings Wallet.`);
+    setTimeout(() => {
+      setLockedSavings(false);
+      setToastMessage(null);
+    }, 3500);
+  };
 
   const {
     cartItems,
@@ -544,6 +560,28 @@ export const QuickCommercePage = () => {
                       )}
                     </div>
                   </div>
+
+                  {/* Lock Deal & Save to Wallet Button */}
+                  <button
+                    onClick={() =>
+                      handleLockSavings(
+                        customCart?.savingsVsCheapestSingle > 0
+                          ? customCart.savingsVsCheapestSingle
+                          : 45
+                      )
+                    }
+                    disabled={lockedSavings}
+                    className="w-full mt-3 py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-800 text-white font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                  >
+                    <Wallet className="w-3.5 h-3.5" />
+                    <span>
+                      {lockedSavings
+                        ? '✓ Locked & Saved to Picksy Wallet!'
+                        : customCart?.savingsVsCheapestSingle > 0
+                        ? `Lock Deal & Save ₹${customCart.savingsVsCheapestSingle} to Wallet`
+                        : 'Lock Deal & Save ₹45 to Picksy Wallet'}
+                    </span>
+                  </button>
                 </div>
               </div>
             )}

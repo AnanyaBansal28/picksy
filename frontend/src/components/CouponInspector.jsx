@@ -1,8 +1,8 @@
-import React from 'react';
-import { Tag, AlertTriangle, CheckCircle, ShieldAlert, Copy, Check } from 'lucide-react';
+import React, { useState } from 'react';
+import { Tag, AlertTriangle, CheckCircle, Copy, Check } from 'lucide-react';
 
 export const CouponInspector = ({ platformListings = [] }) => {
-  const [copiedCode, setCopiedCode] = React.useState(null);
+  const [copiedCode, setCopiedCode] = useState(null);
 
   const listingsWithCoupons = platformListings.filter(
     (l) => l.couponDetails && l.couponDetails.code
@@ -33,6 +33,7 @@ export const CouponInspector = ({ platformListings = [] }) => {
         {listingsWithCoupons.map((l, idx) => {
           const coupon = l.couponDetails;
           const isFake = coupon.isFakeDiscount;
+          const isCopied = copiedCode === coupon.code;
 
           return (
             <div
@@ -79,27 +80,26 @@ export const CouponInspector = ({ platformListings = [] }) => {
                     </div>
 
                     {isFake && coupon.fakeDiscountReason && (
-                      <div className="text-xs text-rose-800 font-semibold mt-1.5 flex items-center gap-1.5 bg-rose-100/70 p-2 rounded-lg">
-                        <ShieldAlert className="w-4 h-4 flex-shrink-0 text-rose-600" />
-                        <span>{coupon.fakeDiscountReason}</span>
+                      <div className="text-[11px] text-rose-700 font-semibold mt-1">
+                        ⚠️ {coupon.fakeDiscountReason}
                       </div>
                     )}
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 self-start sm:self-center">
+                <div className="flex items-center gap-2 self-end sm:self-center">
                   <button
                     onClick={() => handleCopy(coupon.code)}
-                    className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors text-slate-700 shadow-2xs"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-bold text-slate-700 transition-all shadow-2xs cursor-pointer"
                   >
-                    {copiedCode === coupon.code ? (
+                    {isCopied ? (
                       <>
                         <Check className="w-3.5 h-3.5 text-emerald-600" />
-                        <span className="text-emerald-700">Copied!</span>
+                        <span className="text-emerald-700 font-extrabold">Copied!</span>
                       </>
                     ) : (
                       <>
-                        <Copy className="w-3.5 h-3.5 text-slate-500" />
+                        <Copy className="w-3.5 h-3.5 text-slate-400" />
                         <span>Copy Code</span>
                       </>
                     )}
@@ -113,4 +113,3 @@ export const CouponInspector = ({ platformListings = [] }) => {
     </div>
   );
 };
-

@@ -20,7 +20,7 @@ const getAlerts = async (req, res, next) => {
           return {
             ...a,
             currentPrice: decision ? decision.cheapestPlatform.netPayablePrice : a.currentPriceAtCreation,
-            isTriggered: decision ? decision.cheapestPlatform.netPayablePrice <= a.targetPrice : false,
+            isTriggered: a.status === 'triggered' || (decision ? decision.cheapestPlatform.netPayablePrice <= a.targetPrice : false),
           };
         }
         return a;
@@ -35,7 +35,7 @@ const getAlerts = async (req, res, next) => {
           return {
             ...a,
             currentPrice: decision ? decision.cheapestPlatform.netPayablePrice : a.currentPriceAtCreation,
-            isTriggered: decision ? decision.cheapestPlatform.netPayablePrice <= a.targetPrice : false,
+            isTriggered: a.status === 'triggered' || (decision ? decision.cheapestPlatform.netPayablePrice <= a.targetPrice : false),
           };
         }
         return a;
@@ -103,7 +103,129 @@ const createAlert = async (req, res, next) => {
   }
 };
 
-// @desc    Delete/dismiss price alert
+// @desc    Simulate a price drop below user target price to trigger live notifications
+// @route   POST /api/alerts/simulate-drop
+// @access  Private
+const simulateDrop = async (req, res, next) => {
+  try {
+    const userId = req.user._id || req.user.id;
+    const { alertId, productId } = req.body;
+
+    let alert = null;
+    let product = null;
+
+    if (getIsConnected()) {
+      if (alertId) {
+        alert = await PriceAlert.findOne({ _id: alertId, userId });
+      } else if (productId) {
+        alert = await PriceAlert.findOne({ productId, userId, status: 'active' });
+      } else {
+        alert = await PriceAlert.findOne({ userId, status: 'active' }).sort({ createdAt: -1 });
+      }
+
+      if (!alert) {
+        return res.status(404).json({ success: false, message: 'No active price alert found to simulate.' });
+      }
+
+      product = await Product.findById(alert.productId);
+      if (!product) {
+        return res.status(404).json({ success: false, message: 'Associated product not found.' });
+      }
+
+      // Drop price 6% below user's target price
+      const droppedPrice = Math.max(1, Math.round(alert.targetPrice * 0.94));
+
+      if (product.platformListings && product.platformListings.length > 0) {
+        product.platformListings[0].basePrice = droppedPrice;
+      }
+      product.historicalPrices.push({
+        date: new Date().toISOString().split('T')[0],
+        price: droppedPrice,
+        note: '⚡ Flash Sale Drop',
+      });
+      await product.save();
+
+      alert.status = 'triggered';
+      alert.notifiedAt = new Date();
+      await alert.save();
+
+      return res.json({
+        success: true,
+        message: `⚡ Sale Drop Triggered! ${product.title} price dropped to ₹${droppedPrice.toLocaleString('en-IN')}`,
+        alert,
+        droppedPrice,
+        notification: {
+          id: alert._id,
+          productId: product._id,
+          title: `Price Drop Alert: ${product.title}`,
+          message: `Dropped to ₹${droppedPrice.toLocaleString('en-IN')} (Your target was ₹${alert.targetPrice.toLocaleString('en-IN')})`,
+          platform: product.platformListings?.[0]?.platform || 'Flipkart',
+          droppedPrice,
+          targetPrice: alert.targetPrice,
+          image: product.image,
+          timestamp: new Date().toISOString(),
+          isRead: false,
+        },
+      });
+    } else {
+      // In-Memory Mode
+      const userAlerts = await inMemoryStore.alerts.find({ userId });
+      if (alertId) {
+        alert = userAlerts.find((a) => (a._id || a.id) === alertId);
+      } else if (productId) {
+        alert = userAlerts.find((a) => (a.productId?._id || a.productId?.id || a.productId) === productId);
+      } else {
+        alert = userAlerts.find((a) => a.status === 'active') || userAlerts[0];
+      }
+
+      if (!alert) {
+        return res.status(404).json({ success: false, message: 'No price alert found to simulate.' });
+      }
+
+      const prodId = alert.productId?._id || alert.productId?.id || alert.productId;
+      product = await inMemoryStore.products.findById(prodId);
+      if (!product) {
+        return res.status(404).json({ success: false, message: 'Product not found.' });
+      }
+
+      const droppedPrice = Math.max(1, Math.round(alert.targetPrice * 0.94));
+      if (product.platformListings && product.platformListings.length > 0) {
+        product.platformListings[0].basePrice = droppedPrice;
+      }
+      product.historicalPrices.push({
+        date: new Date().toISOString().split('T')[0],
+        price: droppedPrice,
+        note: '⚡ Flash Sale Drop',
+      });
+
+      alert.status = 'triggered';
+      alert.notifiedAt = new Date().toISOString();
+
+      return res.json({
+        success: true,
+        message: `⚡ Sale Drop Triggered! ${product.title} price dropped to ₹${droppedPrice.toLocaleString('en-IN')}`,
+        alert,
+        droppedPrice,
+        notification: {
+          id: alert._id || alert.id,
+          productId: product._id || product.id,
+          title: `Price Drop Alert: ${product.title}`,
+          message: `Dropped to ₹${droppedPrice.toLocaleString('en-IN')} (Your target was ₹${alert.targetPrice.toLocaleString('en-IN')})`,
+          platform: product.platformListings?.[0]?.platform || 'Flipkart',
+          droppedPrice,
+          targetPrice: alert.targetPrice,
+          image: product.image,
+          timestamp: new Date().toISOString(),
+          isRead: false,
+        },
+      });
+    }
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Delete a price alert
 // @route   DELETE /api/alerts/:id
 // @access  Private
 const deleteAlert = async (req, res, next) => {
@@ -113,11 +235,11 @@ const deleteAlert = async (req, res, next) => {
 
     if (getIsConnected()) {
       const alert = await PriceAlert.findOneAndDelete({ _id: id, userId });
-      if (!alert) return res.status(404).json({ success: false, message: 'Alert not found.' });
-      return res.json({ success: true, message: 'Alert removed successfully' });
+      if (!alert) return res.status(404).json({ success: false, message: 'Alert not found' });
+      return res.json({ success: true, message: 'Price alert removed successfully.' });
     } else {
-      const removed = await inMemoryStore.alerts.delete(id, userId);
-      return res.json({ success: true, message: 'Alert removed successfully' });
+      await inMemoryStore.alerts.delete(id);
+      return res.json({ success: true, message: 'Price alert removed successfully.' });
     }
   } catch (error) {
     next(error);
@@ -127,6 +249,6 @@ const deleteAlert = async (req, res, next) => {
 module.exports = {
   getAlerts,
   createAlert,
+  simulateDrop,
   deleteAlert,
 };
-
