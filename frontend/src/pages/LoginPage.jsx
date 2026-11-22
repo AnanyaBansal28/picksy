@@ -1,13 +1,17 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { Sparkles, ArrowRight, Lock, Mail, AlertCircle } from 'lucide-react';
+import { Sparkles, ArrowRight, Lock, Mail, AlertCircle, KeyRound, CheckCircle2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { ForgotPasswordModal } from '../components/ForgotPasswordModal';
 
 export const LoginPage = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [isWrongPassword, setIsWrongPassword] = useState(false);
+  const [successNotification, setSuccessNotification] = useState('');
   const [loading, setLoading] = useState(false);
+  const [isForgotModalOpen, setIsForgotModalOpen] = useState(false);
 
   const { login, quickDemoLogin } = useAuth();
   const navigate = useNavigate();
@@ -17,13 +21,25 @@ export const LoginPage = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setIsWrongPassword(false);
+    setSuccessNotification('');
     setLoading(true);
+
     try {
       await login(email, password);
       navigate(from, { replace: true });
     } catch (err) {
       const errorMsg = err.response?.data?.message || err.message || 'Invalid email or password.';
       setError(errorMsg);
+
+      // Check if the error is specifically a wrong password trigger
+      if (
+        err.response?.data?.isWrongPassword ||
+        errorMsg.toLowerCase().includes('incorrect password') ||
+        errorMsg.toLowerCase().includes('wrong password')
+      ) {
+        setIsWrongPassword(true);
+      }
     } finally {
       setLoading(false);
     }
@@ -31,9 +47,12 @@ export const LoginPage = () => {
 
   const handleFillDemo = async () => {
     setError('');
+    setIsWrongPassword(false);
+    setSuccessNotification('');
     setEmail('aarav@picksy.io');
     setPassword('picksy123');
     setLoading(true);
+
     try {
       await quickDemoLogin();
       navigate(from, { replace: true });
@@ -43,6 +62,14 @@ export const LoginPage = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleResetSuccess = (resetEmail) => {
+    if (resetEmail) setEmail(resetEmail);
+    setPassword('');
+    setError('');
+    setIsWrongPassword(false);
+    setSuccessNotification('Password reset successfully! Please sign in with your new password.');
   };
 
   return (
@@ -66,7 +93,7 @@ export const LoginPage = () => {
           type="button"
           onClick={handleFillDemo}
           disabled={loading}
-          className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-indigo-50 to-emerald-50 hover:from-indigo-100 hover:to-emerald-100 border border-indigo-200/80 text-xs font-bold text-indigo-950 flex items-center justify-center gap-2 transition-all shadow-2xs disabled:opacity-50"
+          className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-indigo-50 to-emerald-50 hover:from-indigo-100 hover:to-emerald-100 border border-indigo-200/80 text-xs font-bold text-indigo-950 flex items-center justify-center gap-2 transition-all shadow-2xs disabled:opacity-50 cursor-pointer"
         >
           <Sparkles className="w-4 h-4 text-indigo-600" />
           <span>1-Click Instant Demo Sign In</span>
@@ -78,6 +105,14 @@ export const LoginPage = () => {
             Or With Email
           </span>
         </div>
+
+        {/* Success Banner */}
+        {successNotification && (
+          <div className="text-xs text-emerald-700 bg-emerald-50 p-3 rounded-xl border border-emerald-200 font-medium flex items-center gap-2 animate-in fade-in">
+            <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+            <span>{successNotification}</span>
+          </div>
+        )}
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -99,9 +134,18 @@ export const LoginPage = () => {
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-              Password
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                Password
+              </label>
+              <button
+                type="button"
+                onClick={() => setIsForgotModalOpen(true)}
+                className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 transition-colors cursor-pointer"
+              >
+                Forgot Password?
+              </button>
+            </div>
             <div className="relative">
               <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
@@ -110,16 +154,41 @@ export const LoginPage = () => {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
                 required
-                className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                className={`w-full pl-10 pr-4 py-2.5 bg-slate-50 border rounded-xl text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 ${
+                  isWrongPassword
+                    ? 'border-rose-300 focus:ring-rose-500/20 focus:border-rose-500'
+                    : 'border-slate-200 focus:ring-indigo-500/20 focus:border-indigo-500'
+                }`}
               />
             </div>
           </div>
 
-          {error && (
-            <div className="text-xs text-rose-600 bg-rose-50 p-3 rounded-xl border border-rose-200 font-medium flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
-              <span>{error}</span>
+          {/* Prominent Wrong Password Alert with 1-Click OTP Trigger */}
+          {isWrongPassword ? (
+            <div className="p-3.5 rounded-xl bg-amber-50/90 border border-amber-200/90 space-y-2 animate-in fade-in duration-200">
+              <div className="flex items-center gap-2 text-xs font-bold text-amber-900">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>Incorrect password for this account</span>
+              </div>
+              <p className="text-[11px] text-amber-700 leading-relaxed">
+                Can't remember your password? Reset it in under 60 seconds with an email OTP code.
+              </p>
+              <button
+                type="button"
+                onClick={() => setIsForgotModalOpen(true)}
+                className="w-full py-2 px-3 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-xs flex items-center justify-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+              >
+                <KeyRound className="w-3.5 h-3.5" />
+                <span>Reset Password with Email OTP</span>
+              </button>
             </div>
+          ) : (
+            error && (
+              <div className="text-xs text-rose-600 bg-rose-50 p-3 rounded-xl border border-rose-200 font-medium flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
+                <span>{error}</span>
+              </div>
+            )
           )}
 
           <button
@@ -141,6 +210,14 @@ export const LoginPage = () => {
           </p>
         </div>
       </div>
+
+      {/* Forgot Password OTP Modal */}
+      <ForgotPasswordModal
+        isOpen={isForgotModalOpen}
+        onClose={() => setIsForgotModalOpen(false)}
+        initialEmail={email}
+        onSuccess={handleResetSuccess}
+      />
     </div>
   );
 };
