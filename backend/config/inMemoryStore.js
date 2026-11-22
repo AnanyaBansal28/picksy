@@ -185,6 +185,23 @@ const inMemoryStore = {
       }
       return user.wishlist;
     },
+    updateOtp: async (email, otp, expiry) => {
+      const user = memoryUsers.find((u) => u.email.toLowerCase() === email.trim().toLowerCase());
+      if (user) {
+        user.resetOtp = otp;
+        user.resetOtpExpiry = expiry;
+      }
+      return user;
+    },
+    updatePassword: async (email, hashedPassword) => {
+      const user = memoryUsers.find((u) => u.email.toLowerCase() === email.trim().toLowerCase());
+      if (user) {
+        user.password = hashedPassword;
+        user.resetOtp = null;
+        user.resetOtpExpiry = null;
+      }
+      return user;
+    },
   },
 
   alerts: {

@@ -37,6 +37,17 @@ const userSchema = new mongoose.Schema(
         ref: 'Product',
       },
     ],
+    // OTP fields for Forgot Password verification
+    resetOtp: {
+      type: String,
+      default: null,
+      select: false,
+    },
+    resetOtpExpiry: {
+      type: Date,
+      default: null,
+      select: false,
+    },
   },
   {
     timestamps: true,
