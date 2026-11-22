@@ -13,7 +13,7 @@ export const PlatformMatrix = ({ evaluatedPlatforms = [], bestPlatform, recommen
           <div>
             <div className="flex items-center gap-2">
               <h3 className="text-base font-extrabold text-slate-900">
-                Side-by-Side Platform Price Comparison (Buyhatke View)
+                Side-by-Side Platform Price Comparison (Picksy View)
               </h3>
               <span className="text-xs font-bold bg-emerald-50 text-emerald-700 px-2.5 py-0.5 rounded-full border border-emerald-200">
                 All Hidden Fees Included

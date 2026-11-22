@@ -180,11 +180,12 @@ export const WishlistPage = () => {
                   className="bg-white rounded-2xl border border-slate-200 p-5 shadow-soft hover:shadow-elevated transition-all flex flex-col justify-between"
                 >
                   <div>
-                    <div className="relative aspect-4/3 rounded-xl overflow-hidden bg-slate-100 mb-3 border border-slate-100">
+                    <div className="relative w-full h-48 rounded-xl overflow-hidden bg-[#F8FAFC] mb-3 border border-slate-100 flex items-center justify-center p-3">
                       <img
                         src={product.image}
                         alt={product.title}
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-contain"
+                        loading="lazy"
                       />
                       <div className="absolute top-2.5 left-2.5">
                         <VerdictBadge verdict={verdict} size="sm" />
@@ -203,7 +204,7 @@ export const WishlistPage = () => {
                     </div>
 
                     <Link to={`/product/${pId}`}>
-                      <h3 className="text-sm font-bold text-slate-900 line-clamp-2 hover:text-indigo-600 transition-colors mb-2">
+                      <h3 className="text-sm font-bold text-slate-900 line-clamp-2 h-10 hover:text-indigo-600 transition-colors mb-2">
                         {product.title}
                       </h3>
                     </Link>

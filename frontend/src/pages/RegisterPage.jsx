@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Sparkles, ArrowRight, Lock, Mail, User } from 'lucide-react';
+import { Sparkles, ArrowRight, Lock, Mail, User, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export const RegisterPage = () => {
@@ -21,7 +21,8 @@ export const RegisterPage = () => {
       await register(name, email, password);
       navigate('/explore');
     } catch (err) {
-      setError(err.message || 'Registration failed');
+      const errorMsg = err.response?.data?.message || err.message || 'Registration failed';
+      setError(errorMsg);
     } finally {
       setLoading(false);
     }
@@ -96,35 +97,31 @@ export const RegisterPage = () => {
           </div>
 
           {error && (
-            <div className="text-xs text-rose-600 bg-rose-50 p-3 rounded-xl border border-rose-200 font-medium">
-              {error}
+            <div className="text-xs text-rose-600 bg-rose-50 p-3 rounded-xl border border-rose-200 font-medium flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
+              <span>{error}</span>
             </div>
           )}
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-1.5 disabled:opacity-50"
+            className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs shadow-sm flex items-center justify-center gap-2 transition-all cursor-pointer"
           >
-            {loading ? (
-              <span>Creating Account...</span>
-            ) : (
-              <>
-                <span>Get Started Free</span>
-                <ArrowRight className="w-4 h-4" />
-              </>
-            )}
+            <span>{loading ? 'Creating Account...' : 'Create Account'}</span>
+            <ArrowRight className="w-4 h-4" />
           </button>
         </form>
 
-        <div className="text-center text-xs text-slate-500">
-          Already have an account?{' '}
-          <Link to="/login" className="text-indigo-600 font-bold hover:underline">
-            Sign In
-          </Link>
+        <div className="text-center pt-2 border-t border-slate-100">
+          <p className="text-xs text-slate-500">
+            Already have an account?{' '}
+            <Link to="/login" className="font-bold text-indigo-600 hover:text-indigo-800">
+              Sign In
+            </Link>
+          </p>
         </div>
       </div>
     </div>
   );
 };
-

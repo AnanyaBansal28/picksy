@@ -298,12 +298,13 @@ export const ExplorerPage = () => {
                 <div>
                   <Link
                     to={`/product/${pId}`}
-                    className="block relative aspect-4/3 rounded-xl overflow-hidden bg-slate-100 mb-4 border border-slate-100"
+                    className="block relative w-full h-48 rounded-xl overflow-hidden bg-[#F8FAFC] border border-slate-100 flex items-center justify-center p-3 mb-4"
                   >
                     <img
                       src={product.image}
                       alt={product.title}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-500"
+                      loading="lazy"
                     />
                     <div className="absolute top-2.5 left-2.5">
                       <VerdictBadge verdict={verdict} size="sm" />
@@ -315,7 +316,7 @@ export const ExplorerPage = () => {
                   </div>
 
                   <Link to={`/product/${pId}`}>
-                    <h3 className="text-base font-bold text-slate-900 group-hover:text-indigo-600 transition-colors line-clamp-2 leading-snug mb-2.5">
+                    <h3 className="text-base font-bold text-slate-900 group-hover:text-indigo-600 transition-colors h-12 line-clamp-2 leading-snug mb-2.5">
                       {product.title}
                     </h3>
                   </Link>

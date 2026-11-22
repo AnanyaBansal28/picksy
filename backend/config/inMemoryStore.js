@@ -135,10 +135,11 @@ const inMemoryStore = {
   users: {
     findOne: async (query) => {
       if (query.email) {
-        return memoryUsers.find((u) => u.email.toLowerCase() === query.email.toLowerCase()) || null;
+        const target = query.email.trim().toLowerCase();
+        return memoryUsers.find((u) => u.email.toLowerCase() === target) || null;
       }
       if (query._id) {
-        return memoryUsers.find((u) => u._id === query._id) || null;
+        return memoryUsers.find((u) => u._id === query._id || u.id === query._id) || null;
       }
       return null;
     },
@@ -148,7 +149,7 @@ const inMemoryStore = {
       return {
         ...u,
         select: (fields) => {
-          if (fields.includes('-password')) {
+          if (fields && fields.includes('-password')) {
             const { password, ...rest } = u;
             return rest;
           }
@@ -158,11 +159,12 @@ const inMemoryStore = {
     },
     create: async ({ name, email, password }) => {
       const hashedPassword = await bcrypt.hash(password, 10);
+      const newId = `user_${Date.now()}`;
       const newUser = {
-        _id: `user_${Date.now()}`,
-        id: `user_${Date.now()}`,
-        name,
-        email: email.toLowerCase(),
+        _id: newId,
+        id: newId,
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
         password: hashedPassword,
         role: 'user',
         wishlist: [],

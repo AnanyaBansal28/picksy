@@ -139,7 +139,7 @@ export const ProductDetailPage = () => {
         </div>
       </div>
 
-      {/* Buyhatke-Style Product Header & Signature Verdict Card */}
+      {/* Picksy Product Header & Signature Verdict Card */}
       <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-soft">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           {/* Left Column: Product Thumbnail */}

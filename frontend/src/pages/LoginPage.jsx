@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { Sparkles, ArrowRight, Lock, Mail } from 'lucide-react';
+import { Sparkles, ArrowRight, Lock, Mail, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export const LoginPage = () => {
@@ -22,13 +22,15 @@ export const LoginPage = () => {
       await login(email, password);
       navigate(from, { replace: true });
     } catch (err) {
-      setError(err.message || 'Invalid email or password.');
+      const errorMsg = err.response?.data?.message || err.message || 'Invalid email or password.';
+      setError(errorMsg);
     } finally {
       setLoading(false);
     }
   };
 
   const handleFillDemo = async () => {
+    setError('');
     setEmail('aarav@picksy.io');
     setPassword('picksy123');
     setLoading(true);
@@ -36,7 +38,8 @@ export const LoginPage = () => {
       await quickDemoLogin();
       navigate(from, { replace: true });
     } catch (err) {
-      setError(err.message || 'Demo login failed');
+      const errorMsg = err.response?.data?.message || err.message || 'Demo login failed';
+      setError(errorMsg);
     } finally {
       setLoading(false);
     }
@@ -62,7 +65,8 @@ export const LoginPage = () => {
         <button
           type="button"
           onClick={handleFillDemo}
-          className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-indigo-50 to-emerald-50 hover:from-indigo-100 hover:to-emerald-100 border border-indigo-200/80 text-xs font-bold text-indigo-950 flex items-center justify-center gap-2 transition-all shadow-2xs"
+          disabled={loading}
+          className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-indigo-50 to-emerald-50 hover:from-indigo-100 hover:to-emerald-100 border border-indigo-200/80 text-xs font-bold text-indigo-950 flex items-center justify-center gap-2 transition-all shadow-2xs disabled:opacity-50"
         >
           <Sparkles className="w-4 h-4 text-indigo-600" />
           <span>1-Click Instant Demo Sign In</span>
@@ -112,35 +116,31 @@ export const LoginPage = () => {
           </div>
 
           {error && (
-            <div className="text-xs text-rose-600 bg-rose-50 p-3 rounded-xl border border-rose-200 font-medium">
-              {error}
+            <div className="text-xs text-rose-600 bg-rose-50 p-3 rounded-xl border border-rose-200 font-medium flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
+              <span>{error}</span>
             </div>
           )}
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-1.5 disabled:opacity-50"
+            className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs shadow-sm flex items-center justify-center gap-2 transition-all cursor-pointer"
           >
-            {loading ? (
-              <span>Signing In...</span>
-            ) : (
-              <>
-                <span>Sign In</span>
-                <ArrowRight className="w-4 h-4" />
-              </>
-            )}
+            <span>{loading ? 'Signing In...' : 'Sign In'}</span>
+            <ArrowRight className="w-4 h-4" />
           </button>
         </form>
 
-        <div className="text-center text-xs text-slate-500">
-          Don't have an account?{' '}
-          <Link to="/register" className="text-indigo-600 font-bold hover:underline">
-            Create account
-          </Link>
+        <div className="text-center pt-2 border-t border-slate-100">
+          <p className="text-xs text-slate-500">
+            Don't have an account?{' '}
+            <Link to="/register" className="font-bold text-indigo-600 hover:text-indigo-800">
+              Create an account
+            </Link>
+          </p>
         </div>
       </div>
     </div>
   );
 };
-

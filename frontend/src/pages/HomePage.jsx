@@ -153,7 +153,7 @@ export const HomePage = () => {
             {/* Subtitle */}
             <p className="mt-4 text-sm sm:text-base text-slate-600 leading-relaxed font-normal max-w-2xl mx-auto">
               {activeMode === 'ecommerce'
-                ? 'Like Buyhatke, but smarter. We compare base price, delivery fees, seller ratings, and 30-day price history across Amazon, Flipkart & Myntra to give you a clear "Buy Now vs. Wait" verdict.'
+                ? 'Picksy compares base price, delivery fees, seller ratings, and 30-day price history across Amazon, Flipkart & Myntra to give you a clear "Buy Now vs. Wait" verdict.'
                 : 'Different 10-minute grocery apps have completely different item prices. Picksy checks item-by-item prices across Blinkit, Zepto, and Instamart to automatically split your order for maximum savings.'}
             </p>
 
@@ -264,7 +264,7 @@ export const HomePage = () => {
 
           {/* Dual Tool Showcase Cards */}
           <div className="mt-12 grid grid-cols-1 md:grid-cols-2 gap-6 max-w-5xl mx-auto">
-            {/* Tool 1 Card: Buyhatke-Style E-Commerce Price Compare */}
+            {/* Tool 1 Card: Picksy E-Commerce Price Compare */}
             <div className="bg-white rounded-3xl p-6 sm:p-7 border border-slate-200/90 shadow-elevated flex flex-col justify-between hover:border-indigo-300 transition-all">
               <div>
                 <div className="flex items-center justify-between gap-2 mb-4">
@@ -404,11 +404,12 @@ export const HomePage = () => {
                 className="group bg-white rounded-2xl border border-slate-200 p-4 shadow-soft hover:shadow-elevated hover:border-indigo-300 transition-all flex flex-col justify-between"
               >
                 <div>
-                  <div className="relative aspect-4/3 rounded-xl overflow-hidden bg-slate-100 mb-3 border border-slate-100">
+                  <div className="relative w-full h-48 rounded-xl overflow-hidden bg-[#F8FAFC] border border-slate-100 flex items-center justify-center p-3 mb-3">
                     <img
                       src={product.image}
                       alt={product.title}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-500"
+                      loading="lazy"
                     />
                     <div className="absolute top-2.5 left-2.5">
                       <VerdictBadge verdict={verdict} size="sm" />
@@ -419,7 +420,7 @@ export const HomePage = () => {
                     {product.brand} • {product.subCategory}
                   </div>
 
-                  <h3 className="text-sm font-bold text-slate-900 line-clamp-2 leading-snug mb-3 group-hover:text-indigo-600 transition-colors">
+                  <h3 className="text-sm font-bold text-slate-900 h-10 line-clamp-2 leading-snug mb-3 group-hover:text-indigo-600 transition-colors">
                     {product.title}
                   </h3>
                 </div>
