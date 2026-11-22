@@ -374,6 +374,7 @@ export const ProductDetailPage = () => {
           evaluatedPlatforms={decision?.evaluatedPlatforms}
           bestPlatform={bestPlatform}
           recommendationReasons={decision?.recommendationReasons}
+          productTitle={product.title || product.name}
         />
       </div>
 

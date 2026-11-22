@@ -13,7 +13,65 @@ import {
 } from 'lucide-react';
 import { PicksyTopPickBadge } from './DecisionBadge';
 
-export const PlatformMatrix = ({ evaluatedPlatforms = [], bestPlatform, recommendationReasons = [] }) => {
+export const getPlatformOutboundUrl = (platform, productTitle, existingUrl) => {
+  const name = String(productTitle || '').trim();
+  const encodedName = encodeURIComponent(name);
+  const plat = String(platform || '').toLowerCase();
+
+  // If item was imported via a real pasted URL for this platform, preserve exact clean pasted URL
+  if (
+    existingUrl &&
+    existingUrl.startsWith('http') &&
+    !existingUrl.includes('/dp/example') &&
+    !existingUrl.includes('example-') &&
+    !existingUrl.endsWith('/#')
+  ) {
+    try {
+      const parsed = new URL(existingUrl);
+      const host = parsed.hostname.toLowerCase();
+      if (
+        (plat.includes('amazon') && host.includes('amazon')) ||
+        (plat.includes('flipkart') && host.includes('flipkart')) ||
+        ((plat.includes('tata') || plat.includes('cliq')) && host.includes('tatacliq')) ||
+        (plat.includes('myntra') && host.includes('myntra')) ||
+        (plat.includes('blinkit') && host.includes('blinkit')) ||
+        (plat.includes('zepto') && host.includes('zepto')) ||
+        (plat.includes('instamart') && (host.includes('swiggy') || host.includes('instamart')))
+      ) {
+        return existingUrl;
+      }
+    } catch (e) {
+      // invalid URL format, fall through to search URLs
+    }
+  }
+
+  // Exact search URLs requested:
+  if (plat.includes('amazon')) {
+    return `https://www.amazon.in/s?k=${encodedName}`;
+  } else if (plat.includes('flipkart')) {
+    return `https://www.flipkart.com/search?q=${encodedName}`;
+  } else if (plat.includes('tata') || plat.includes('cliq')) {
+    return `https://www.tatacliq.com/search/?searchCategory=all&text=${encodedName}`;
+  } else if (plat.includes('myntra')) {
+    const slug = encodeURIComponent(name.toLowerCase().replace(/\s+/g, '-'));
+    return `https://www.myntra.com/${slug}`;
+  } else if (plat.includes('blinkit')) {
+    return `https://blinkit.com/s/?q=${encodedName}`;
+  } else if (plat.includes('zepto')) {
+    return `https://www.zeptonow.com/search?q=${encodedName}`;
+  } else if (plat.includes('instamart')) {
+    return `https://www.swiggy.com/instamart/search?custom_back=true&query=${encodedName}`;
+  }
+
+  return `https://www.amazon.in/s?k=${encodedName}`;
+};
+
+export const PlatformMatrix = ({
+  evaluatedPlatforms = [],
+  bestPlatform,
+  recommendationReasons = [],
+  productTitle = '',
+}) => {
   const [copiedCoupon, setCopiedCoupon] = useState(null);
 
   if (!evaluatedPlatforms || evaluatedPlatforms.length === 0) return null;
@@ -213,7 +271,7 @@ export const PlatformMatrix = ({ evaluatedPlatforms = [], bestPlatform, recommen
                   {/* Action Link */}
                   <td className="py-4 px-3 align-top text-right">
                     <a
-                      href={listing.productUrl}
+                      href={getPlatformOutboundUrl(listing.platform, productTitle, listing.productUrl)}
                       target="_blank"
                       rel="noopener noreferrer"
                       className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-xl font-bold text-xs transition-all shadow-2xs ${

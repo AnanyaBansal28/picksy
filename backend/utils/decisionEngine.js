@@ -6,6 +6,43 @@
  * 3. Real Deal Score (0 - 100) & Coupon Reality Check
  */
 
+function isDummyOutboundUrl(url) {
+  if (!url || typeof url !== 'string' || url === '#') return true;
+  if (url.includes('example') || url.includes('/dp/example') || url.includes('example-')) return true;
+  if (/\/(?:dp|p)\/(?:samsung-s24|oneplus-12|sony-xm5|airpods-pro-2|macbook-m2|rog-g14|ps5-slim|jordan-1)/i.test(url)) {
+    return true;
+  }
+  if (url.includes('flipkart.com/dp/') || url.includes('tatacliq.com/dp/') || url.includes('myntra.com/dp/')) {
+    return true;
+  }
+  return false;
+}
+
+function getPlatformSearchUrl(platform, productName) {
+  const name = String(productName || '').trim();
+  const encodedName = encodeURIComponent(name);
+  const plat = String(platform || '').toLowerCase();
+
+  if (plat.includes('amazon')) {
+    return `https://www.amazon.in/s?k=${encodedName}`;
+  } else if (plat.includes('flipkart')) {
+    return `https://www.flipkart.com/search?q=${encodedName}`;
+  } else if (plat.includes('tata') || plat.includes('cliq')) {
+    return `https://www.tatacliq.com/search/?searchCategory=all&text=${encodedName}`;
+  } else if (plat.includes('myntra')) {
+    const slug = encodeURIComponent(name.toLowerCase().replace(/\s+/g, '-'));
+    return `https://www.myntra.com/${slug}`;
+  } else if (plat.includes('blinkit')) {
+    return `https://blinkit.com/s/?q=${encodedName}`;
+  } else if (plat.includes('zepto')) {
+    return `https://www.zeptonow.com/search?q=${encodedName}`;
+  } else if (plat.includes('instamart')) {
+    return `https://www.swiggy.com/instamart/search?custom_back=true&query=${encodedName}`;
+  }
+
+  return `https://www.amazon.in/s?k=${encodedName}`;
+}
+
 function calculateDecisionMetrics(product) {
   if (!product || !product.platformListings || product.platformListings.length === 0) {
     return null;
@@ -46,8 +83,16 @@ function calculateDecisionMetrics(product) {
 
     const compositeScore = Math.round(priceScore + sellerScore + returnScore + feeScore);
 
+    // Ensure working outbound search URL if missing or dummy
+    const prodName = product.title || product.name || '';
+    let outboundUrl = rawListing.productUrl;
+    if (isDummyOutboundUrl(outboundUrl)) {
+      outboundUrl = getPlatformSearchUrl(rawListing.platform, prodName);
+    }
+
     return {
       ...rawListing,
+      productUrl: outboundUrl,
       netPayablePrice,
       compositeScore,
       isFreeDelivery: deliveryFee === 0,
@@ -255,4 +300,5 @@ function calculateDecisionMetrics(product) {
 
 module.exports = {
   calculateDecisionMetrics,
+  getPlatformSearchUrl,
 };

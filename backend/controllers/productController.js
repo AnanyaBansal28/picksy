@@ -1,7 +1,7 @@
 const Product = require('../models/Product');
 const { getIsConnected } = require('../config/db');
 const inMemoryStore = require('../config/inMemoryStore');
-const { calculateDecisionMetrics } = require('../utils/decisionEngine');
+const { calculateDecisionMetrics, getPlatformSearchUrl } = require('../utils/decisionEngine');
 
 // @desc    Get all products with filtering, search, sorting & dynamic decision engine data
 // @route   GET /api/products
@@ -496,17 +496,16 @@ const analyzeUrl = async (req, res, next) => {
     // If strong match (at least 2 words or exact brand/device), return catalog item
     if (matchedProduct && highestMatchScore >= 2) {
       let finalMatched = { ...matchedProduct };
-      // If user provided custom price, adjust the detected platform's price
-      if (hasUserPrice && finalMatched.platformListings && finalMatched.platformListings.length > 0) {
+      if (finalMatched.platformListings && finalMatched.platformListings.length > 0) {
         finalMatched.platformListings = finalMatched.platformListings.map((listing) => {
-          if (listing.platform.toLowerCase() === detectedPlatform.toLowerCase()) {
-            return {
-              ...listing,
-              basePrice: Math.round(enteredPrice),
-              productUrl: canonicalUrl,
-            };
-          }
-          return listing;
+          const isPastedPlatform = listing.platform.toLowerCase() === detectedPlatform.toLowerCase();
+          return {
+            ...listing,
+            basePrice: isPastedPlatform && hasUserPrice ? Math.round(enteredPrice) : listing.basePrice,
+            productUrl: isPastedPlatform
+              ? canonicalUrl
+              : getPlatformSearchUrl(listing.platform, finalMatched.title || finalMatched.name),
+          };
         });
       }
       const decision = calculateDecisionMetrics(finalMatched);
@@ -710,7 +709,7 @@ const analyzeUrl = async (req, res, next) => {
           returnPolicyScore: 8,
           eta: '2-3 Days',
           inStock: true,
-          productUrl: canonicalUrl,
+          productUrl: getPlatformSearchUrl(p2Platform, displayTitle),
           couponDetails: null,
         },
         {
@@ -725,7 +724,7 @@ const analyzeUrl = async (req, res, next) => {
           returnPolicyScore: 9,
           eta: '3-4 Days',
           inStock: true,
-          productUrl: canonicalUrl,
+          productUrl: getPlatformSearchUrl(p3Platform, displayTitle),
         },
       ],
       reviewIntelligence: {

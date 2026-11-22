@@ -1984,7 +1984,59 @@ const sampleProducts = [
   },
 ];
 
+function getPlatformSearchUrl(platform, productName) {
+  const name = String(productName || '').trim();
+  const encodedName = encodeURIComponent(name);
+  const plat = String(platform || '').toLowerCase();
+
+  if (plat.includes('amazon')) {
+    return `https://www.amazon.in/s?k=${encodedName}`;
+  } else if (plat.includes('flipkart')) {
+    return `https://www.flipkart.com/search?q=${encodedName}`;
+  } else if (plat.includes('tata') || plat.includes('cliq')) {
+    return `https://www.tatacliq.com/search/?searchCategory=all&text=${encodedName}`;
+  } else if (plat.includes('myntra')) {
+    const slug = encodeURIComponent(name.toLowerCase().replace(/\s+/g, '-'));
+    return `https://www.myntra.com/${slug}`;
+  } else if (plat.includes('blinkit')) {
+    return `https://blinkit.com/s/?q=${encodedName}`;
+  } else if (plat.includes('zepto')) {
+    return `https://www.zeptonow.com/search?q=${encodedName}`;
+  } else if (plat.includes('instamart')) {
+    return `https://www.swiggy.com/instamart/search?custom_back=true&query=${encodedName}`;
+  }
+
+  return `https://www.amazon.in/s?k=${encodedName}`;
+}
+
+// Convert any dummy /dp/ URLs to real working search URLs for each platform
+const processedSampleProducts = sampleProducts.map((prod) => {
+  const prodName = prod.title || prod.name || '';
+  const listings = (prod.platformListings || []).map((listing) => {
+    const isDummy =
+      !listing.productUrl ||
+      listing.productUrl === '#' ||
+      listing.productUrl.includes('/dp/example') ||
+      listing.productUrl.includes('example-') ||
+      /\/(?:dp|p)\/(?:samsung-s24|oneplus-12|sony-xm5|airpods-pro-2|macbook-m2|rog-g14|ps5-slim|jordan-1)/i.test(listing.productUrl) ||
+      listing.productUrl.includes('flipkart.com/dp/') ||
+      listing.productUrl.includes('tatacliq.com/dp/') ||
+      listing.productUrl.includes('myntra.com/dp/');
+
+    return {
+      ...listing,
+      productUrl: isDummy ? getPlatformSearchUrl(listing.platform, prodName) : listing.productUrl,
+    };
+  });
+
+  return {
+    ...prod,
+    platformListings: listings,
+  };
+});
+
 module.exports = {
-  sampleProducts,
+  sampleProducts: processedSampleProducts,
   generatePriceHistory,
+  getPlatformSearchUrl,
 };
