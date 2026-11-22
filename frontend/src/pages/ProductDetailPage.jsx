@@ -191,7 +191,10 @@ export const ProductDetailPage = () => {
               </div>
             </div>
             {product.description && (
-              <p className="text-xs text-slate-500 mt-3 leading-relaxed">
+              <p
+                className="text-xs text-slate-500 mt-3 leading-relaxed break-all line-clamp-2"
+                title={product.description}
+              >
                 {product.description}
               </p>
             )}
@@ -210,7 +213,7 @@ export const ProductDetailPage = () => {
                 </span>
               </div>
 
-              <h1 className="text-2xl sm:text-3xl font-black text-slate-950 tracking-tight leading-snug">
+              <h1 className="text-2xl sm:text-3xl font-black text-slate-950 tracking-tight leading-snug break-words">
                 {product.title}
               </h1>
 
