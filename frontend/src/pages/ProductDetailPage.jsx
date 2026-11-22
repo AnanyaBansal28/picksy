@@ -7,7 +7,6 @@ import {
   Share2,
   CheckCircle2,
   Clock,
-  AlertTriangle,
   Sparkles,
   ShieldCheck,
   TrendingDown,
@@ -15,6 +14,7 @@ import {
   Tag,
   Star,
   ExternalLink,
+  ChevronRight,
 } from 'lucide-react';
 import { productService } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -56,7 +56,7 @@ export const ProductDetailPage = () => {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 text-center">
         <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-indigo-600 border-t-transparent mb-4"></div>
-        <div className="text-sm font-semibold text-slate-600">Running Decision Engine analysis...</div>
+        <div className="text-sm font-bold text-slate-700">Loading Price Comparison & History...</div>
       </div>
     );
   }
@@ -70,7 +70,7 @@ export const ProductDetailPage = () => {
           to="/explore"
           className="px-5 py-2.5 bg-indigo-600 text-white font-bold rounded-xl text-xs hover:bg-indigo-700 transition-colors"
         >
-          Return to E-Commerce Explorer
+          Return to Price Comparison
         </Link>
       </div>
     );
@@ -96,31 +96,33 @@ export const ProductDetailPage = () => {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-      {/* Back breadcrumb and Action buttons */}
+      {/* Breadcrumb Navigation & Action Buttons */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <Link
-          to="/explore"
-          className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-indigo-600 transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          <span>Back to Explorer</span>
-        </Link>
+        <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
+          <Link to="/explore" className="hover:text-indigo-600 transition-colors">
+            Price Comparison
+          </Link>
+          <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+          <span>{product.subCategory}</span>
+          <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+          <span className="text-slate-800 font-bold truncate max-w-xs">{product.title}</span>
+        </div>
 
         <div className="flex items-center gap-2 self-start sm:self-auto">
           <button
             onClick={handleShare}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-2xs transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 shadow-2xs transition-colors"
           >
             <Share2 className="w-3.5 h-3.5" />
-            <span>{copiedShare ? 'Link Copied!' : 'Share Decision'}</span>
+            <span>{copiedShare ? 'Copied!' : 'Share'}</span>
           </button>
 
           <button
             onClick={() => setIsAlertOpen(true)}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-50 text-amber-900 border border-amber-200 rounded-xl text-xs font-bold hover:bg-amber-100 shadow-2xs transition-colors"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-50 text-amber-900 border border-amber-300 rounded-xl text-xs font-extrabold hover:bg-amber-100 shadow-2xs transition-colors"
           >
             <Bell className="w-3.5 h-3.5 text-amber-600" />
-            <span>Set Price Alert</span>
+            <span>Set Price Drop Alert</span>
           </button>
 
           <button
@@ -130,19 +132,19 @@ export const ProductDetailPage = () => {
                 ? 'bg-rose-50 text-rose-600 border-rose-200'
                 : 'bg-white text-slate-600 border-slate-200 hover:text-rose-600'
             }`}
-            title={isSaved ? 'Remove from Wishlist' : 'Add to Wishlist'}
+            title={isSaved ? 'In Watchlist' : 'Add to Watchlist'}
           >
             <Heart className={`w-4 h-4 ${isSaved ? 'fill-rose-500' : ''}`} />
           </button>
         </div>
       </div>
 
-      {/* Hero Decision Header Card */}
+      {/* Buyhatke-Style Product Header & Signature Verdict Card */}
       <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-soft">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-          {/* Left: Product Media Preview */}
+          {/* Left Column: Product Thumbnail */}
           <div className="lg:col-span-4">
-            <div className="relative aspect-square rounded-2xl overflow-hidden bg-slate-50 border border-slate-200">
+            <div className="relative aspect-square rounded-2xl overflow-hidden bg-slate-50 border border-slate-200 shadow-xs">
               <img
                 src={product.image}
                 alt={product.title}
@@ -159,11 +161,11 @@ export const ProductDetailPage = () => {
             )}
           </div>
 
-          {/* Right: Decision Headline & Signature Verdict */}
+          {/* Right Column: Comparison Headlines & Verdict Box */}
           <div className="lg:col-span-8 flex flex-col justify-between h-full">
             <div>
               <div className="flex items-center gap-2 mb-1.5">
-                <span className="text-xs font-extrabold uppercase tracking-widest text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-full">
+                <span className="text-xs font-extrabold uppercase tracking-widest text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-200">
                   {product.brand}
                 </span>
                 <span className="text-xs font-semibold text-slate-400">•</span>
@@ -179,22 +181,25 @@ export const ProductDetailPage = () => {
               {/* Primary Pricing Banner */}
               <div className="flex flex-wrap items-baseline gap-4 mt-4 pt-4 border-t border-slate-100">
                 <div>
-                  <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                    Picksy Best Net Price
+                  <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                    Lowest Net Price (Including Delivery & Coupons)
                   </div>
-                  <div className="text-3xl sm:text-4xl font-black text-slate-900 mt-0.5">
-                    ₹{bestPlatform?.netPayablePrice?.toLocaleString('en-IN')}
+                  <div className="text-3xl sm:text-4xl font-black text-slate-900 mt-0.5 flex items-center gap-3">
+                    <span>₹{bestPlatform?.netPayablePrice?.toLocaleString('en-IN')}</span>
+                    <span className="text-xs font-extrabold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
+                      via {bestPlatform?.platform}
+                    </span>
                   </div>
                 </div>
                 <div className="text-xs text-slate-600">
                   <div>Catalog MRP: <span className="line-through">₹{product.mrp?.toLocaleString('en-IN')}</span></div>
-                  <div className="text-emerald-700 font-bold mt-0.5">
+                  <div className="text-emerald-700 font-extrabold mt-0.5">
                     Real Savings: ₹{(product.mrp - bestPlatform?.netPayablePrice)?.toLocaleString('en-IN')}
                   </div>
                 </div>
               </div>
 
-              {/* Signature Feature: "Buy Now vs. Wait" Verdict Banner */}
+              {/* Clear "Buy Now vs. Wait" Verdict Box */}
               <div
                 className={`mt-6 p-5 rounded-2xl border ${
                   verdict?.action === 'BUY NOW'
@@ -204,20 +209,31 @@ export const ProductDetailPage = () => {
                     : 'bg-[#EEF2FF] border-[#C7D2FE]'
                 }`}
               >
-                <div className="flex items-center gap-2.5 mb-2">
-                  <VerdictBadge verdict={verdict?.action} size="lg" />
-                  <span
-                    className={`text-xs font-bold uppercase tracking-wider ${
-                      verdict?.action === 'BUY NOW'
-                        ? 'text-[#065F46]'
-                        : verdict?.action === 'WAIT'
-                        ? 'text-[#92400E]'
-                        : 'text-[#3730A3]'
-                    }`}
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <div className="flex items-center gap-2">
+                    <VerdictBadge verdict={verdict?.action} size="lg" />
+                    <span
+                      className={`text-xs font-extrabold uppercase tracking-wider ${
+                        verdict?.action === 'BUY NOW'
+                          ? 'text-[#065F46]'
+                          : verdict?.action === 'WAIT'
+                          ? 'text-[#92400E]'
+                          : 'text-[#3730A3]'
+                      }`}
+                    >
+                      {verdict?.summary}
+                    </span>
+                  </div>
+
+                  <button
+                    onClick={() => setIsAlertOpen(true)}
+                    className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 bg-white border border-slate-300 rounded-xl text-xs font-extrabold text-slate-800 hover:bg-slate-50 transition-colors shadow-2xs"
                   >
-                    {verdict?.summary}
-                  </span>
+                    <Bell className="w-3.5 h-3.5 text-amber-500" />
+                    <span>Set Target Alert</span>
+                  </button>
                 </div>
+
                 <p
                   className={`text-xs sm:text-sm font-medium leading-relaxed ${
                     verdict?.action === 'BUY NOW'
@@ -231,20 +247,20 @@ export const ProductDetailPage = () => {
                 </p>
               </div>
 
-              {/* Micro stats banner */}
+              {/* Price Milestones Strip (Lowest, Highest, Current) */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6">
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
                   <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                    30D Average
+                    Current Best
                   </div>
-                  <div className="text-sm font-bold text-slate-900 mt-0.5">
-                    ₹{verdict?.avg30Price?.toLocaleString('en-IN')}
+                  <div className="text-sm font-black text-slate-900 mt-0.5">
+                    ₹{bestPlatform?.netPayablePrice?.toLocaleString('en-IN')}
                   </div>
                 </div>
 
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
                   <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                    30D Record Low
+                    30-Day Floor (Lowest)
                   </div>
                   <div className="text-sm font-bold text-emerald-600 mt-0.5">
                     ₹{verdict?.lowest30Price?.toLocaleString('en-IN')}
@@ -253,7 +269,16 @@ export const ProductDetailPage = () => {
 
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
                   <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                    Diff vs 30D Avg
+                    30-Day Peak (Highest)
+                  </div>
+                  <div className="text-sm font-bold text-slate-600 mt-0.5">
+                    ₹{verdict?.highest30Price?.toLocaleString('en-IN')}
+                  </div>
+                </div>
+
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    vs 30D Average
                   </div>
                   <div
                     className={`text-sm font-bold mt-0.5 ${
@@ -262,16 +287,7 @@ export const ProductDetailPage = () => {
                   >
                     {verdict?.priceVsAvgPct <= 0
                       ? `${verdict?.priceVsAvgPct}% Cheaper`
-                      : `+${verdict?.priceVsAvgPct}% Above Avg`}
-                  </div>
-                </div>
-
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                    Top Platform
-                  </div>
-                  <div className="text-sm font-bold text-indigo-700 mt-0.5">
-                    {bestPlatform?.platform}
+                      : `+${verdict?.priceVsAvgPct}% Higher`}
                   </div>
                 </div>
               </div>
@@ -280,7 +296,16 @@ export const ProductDetailPage = () => {
         </div>
       </div>
 
-      {/* Row 2: Price History Chart & Real Deal Score Gauge */}
+      {/* Row 2: Side-by-Side Platform Price Table */}
+      <div>
+        <PlatformMatrix
+          evaluatedPlatforms={decision?.evaluatedPlatforms}
+          bestPlatform={bestPlatform}
+          recommendationReasons={decision?.recommendationReasons}
+        />
+      </div>
+
+      {/* Row 3: Interactive Price History Chart & Real Deal Score Gauge */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         <div className="lg:col-span-7">
           <PriceHistoryChart
@@ -296,15 +321,6 @@ export const ProductDetailPage = () => {
         </div>
       </div>
 
-      {/* Row 3: Platform Comparison Matrix */}
-      <div>
-        <PlatformMatrix
-          evaluatedPlatforms={decision?.evaluatedPlatforms}
-          bestPlatform={bestPlatform}
-          recommendationReasons={decision?.recommendationReasons}
-        />
-      </div>
-
       {/* Row 4: Coupon Reality Check */}
       <div>
         <CouponInspector platformListings={product.platformListings} />
@@ -315,7 +331,7 @@ export const ProductDetailPage = () => {
         <ReviewIntelligence reviewIntelligence={product.reviewIntelligence} />
       </div>
 
-      {/* Price Alert Modal */}
+      {/* Target Price Alert Modal */}
       <PriceAlertModal
         product={product}
         isOpen={isAlertOpen}

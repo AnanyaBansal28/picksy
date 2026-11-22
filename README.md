@@ -213,3 +213,4 @@ For instant testing of protected features (Wishlist & Price Alerts), click the *
 ## 🛡️ License
 
 Built with pride for smart, informed shoppers everywhere. Pick Smartly, Shop Wisely.
+

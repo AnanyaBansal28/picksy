@@ -126,3 +126,4 @@ export const ReviewIntelligence = ({ reviewIntelligence }) => {
     </div>
   );
 };
+

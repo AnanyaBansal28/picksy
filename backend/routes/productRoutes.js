@@ -7,3 +7,4 @@ router.get('/spotlight/deals', getSpotlightDeals);
 router.get('/:id', getProductById);
 
 module.exports = router;
+

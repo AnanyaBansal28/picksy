@@ -165,3 +165,4 @@ ProductSchema.virtual('lowestPrice').get(function () {
 });
 
 module.exports = mongoose.model('Product', ProductSchema);
+

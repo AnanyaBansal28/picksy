@@ -2,16 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import {
   Search,
-  Filter,
   SlidersHorizontal,
   Heart,
   Bell,
   ArrowRight,
   Sparkles,
-  CheckCircle2,
-  Clock,
-  AlertTriangle,
   X,
+  ExternalLink,
 } from 'lucide-react';
 import { productService } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -94,21 +91,24 @@ export const ExplorerPage = () => {
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Page Header */}
       <div className="mb-8">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-indigo-600 uppercase tracking-widest bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-200">
-                Decision Intelligence
+              <span className="text-xs font-bold text-indigo-700 uppercase tracking-widest bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-200">
+                E-Commerce Price Tracker
+              </span>
+              <span className="text-xs font-semibold text-slate-500">
+                Amazon • Flipkart • Myntra
               </span>
             </div>
             <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight mt-1.5">
-              E-Commerce Price Tracker & Decision Suite
+              Compare Prices & Check Buy/Wait Verdicts
             </h1>
-            <p className="text-xs sm:text-sm text-slate-500 mt-1">
-              Cross-platform pricing analysis across Amazon, Flipkart, Myntra, and Tata CliQ.
+            <p className="text-xs sm:text-sm text-slate-500 mt-1 max-w-2xl">
+              Strictly verified prices across Indian stores. Search by brand or model to see live price tables, 30-day historical charts, and whether to buy now or wait.
             </p>
           </div>
 
@@ -119,7 +119,7 @@ export const ExplorerPage = () => {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search brand, model, tag..."
+              placeholder="Search phone, laptop, shoes..."
               className="w-full pl-9 pr-8 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 shadow-2xs"
             />
             {search && (
@@ -143,7 +143,7 @@ export const ExplorerPage = () => {
         {/* Category Pills */}
         <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
           <span className="text-xs font-bold uppercase tracking-wider text-slate-400 mr-1 flex-shrink-0">
-            Category:
+            Categories:
           </span>
           {CATEGORIES.map((cat) => (
             <button
@@ -151,7 +151,7 @@ export const ExplorerPage = () => {
               onClick={() => setSelectedCategory(cat)}
               className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
                 selectedCategory === cat
-                  ? 'bg-indigo-600 text-white shadow-2xs'
+                  ? 'bg-indigo-600 text-white shadow-2xs font-bold'
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}
             >
@@ -163,7 +163,7 @@ export const ExplorerPage = () => {
         {/* Verdict & Sort Filters */}
         <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100 text-xs">
           {/* Verdict Filter Buttons */}
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
             <span className="font-bold text-slate-500 uppercase tracking-wider text-[11px] mr-1">
               Verdict Filter:
             </span>
@@ -171,7 +171,7 @@ export const ExplorerPage = () => {
               onClick={() => setDealFilter('ALL')}
               className={`px-2.5 py-1 rounded-lg font-semibold transition-all ${
                 dealFilter === 'ALL'
-                  ? 'bg-slate-900 text-white'
+                  ? 'bg-slate-900 text-white font-bold'
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}
             >
@@ -181,7 +181,7 @@ export const ExplorerPage = () => {
               onClick={() => setDealFilter('BUY_NOW')}
               className={`px-2.5 py-1 rounded-lg font-semibold transition-all ${
                 dealFilter === 'BUY_NOW'
-                  ? 'bg-emerald-600 text-white'
+                  ? 'bg-emerald-600 text-white font-bold'
                   : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
               }`}
             >
@@ -191,21 +191,21 @@ export const ExplorerPage = () => {
               onClick={() => setDealFilter('EXCEPTIONAL')}
               className={`px-2.5 py-1 rounded-lg font-semibold transition-all ${
                 dealFilter === 'EXCEPTIONAL'
-                  ? 'bg-indigo-600 text-white'
+                  ? 'bg-indigo-600 text-white font-bold'
                   : 'bg-indigo-50 text-indigo-800 hover:bg-indigo-100'
               }`}
             >
-              Score ≥ 80
+              Deal Score ≥ 80
             </button>
             <button
               onClick={() => setDealFilter('WAIT')}
               className={`px-2.5 py-1 rounded-lg font-semibold transition-all ${
                 dealFilter === 'WAIT'
-                  ? 'bg-amber-600 text-white'
+                  ? 'bg-amber-600 text-white font-bold'
                   : 'bg-amber-50 text-amber-800 hover:bg-amber-100'
               }`}
             >
-              WAIT Only
+              WAIT (Spikes)
             </button>
           </div>
 
@@ -219,9 +219,9 @@ export const ExplorerPage = () => {
               className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             >
               <option value="deal_score_desc">Real Deal Score (High to Low)</option>
-              <option value="verdict">Verdict Priority (Buy First)</option>
-              <option value="price_asc">Net Price (Low to High)</option>
-              <option value="price_desc">Net Price (High to Low)</option>
+              <option value="verdict">Buy Now Deals First</option>
+              <option value="price_asc">Price: Low to High</option>
+              <option value="price_desc">Price: High to Low</option>
             </select>
           </div>
         </div>
@@ -253,6 +253,7 @@ export const ExplorerPage = () => {
               setSearch('');
               setSelectedCategory('All');
               setDealFilter('ALL');
+              fetchProducts();
             }}
             className="mt-4 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl text-xs font-bold hover:bg-indigo-100"
           >
@@ -274,12 +275,12 @@ export const ExplorerPage = () => {
                 key={pId}
                 className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-soft hover:shadow-elevated hover:border-indigo-300 transition-all flex flex-col justify-between relative"
               >
-                {/* Wishlist & Alert buttons at top right */}
+                {/* Wishlist & Alert buttons */}
                 <div className="absolute top-7 right-7 z-10 flex items-center gap-1.5">
                   <button
                     onClick={(e) => handleAlertClick(e, product)}
                     className="p-2 rounded-xl bg-white/90 backdrop-blur-xs text-slate-500 hover:text-amber-600 hover:bg-amber-50 border border-slate-200/80 shadow-2xs transition-all"
-                    title="Set Price Alert"
+                    title="Set Target Price Drop Alert"
                   >
                     <Bell className="w-3.5 h-3.5" />
                   </button>
@@ -288,15 +289,17 @@ export const ExplorerPage = () => {
                     className={`p-2 rounded-xl bg-white/90 backdrop-blur-xs border border-slate-200/80 shadow-2xs transition-all ${
                       saved ? 'text-rose-500 bg-rose-50' : 'text-slate-500 hover:text-rose-500'
                     }`}
-                    title={saved ? 'In Wishlist' : 'Save to Wishlist'}
+                    title={saved ? 'Saved' : 'Save to Watchlist'}
                   >
                     <Heart className={`w-3.5 h-3.5 ${saved ? 'fill-rose-500' : ''}`} />
                   </button>
                 </div>
 
                 <div>
-                  {/* Image container */}
-                  <Link to={`/product/${pId}`} className="block relative aspect-4/3 rounded-xl overflow-hidden bg-slate-100 mb-4 border border-slate-100">
+                  <Link
+                    to={`/product/${pId}`}
+                    className="block relative aspect-4/3 rounded-xl overflow-hidden bg-slate-100 mb-4 border border-slate-100"
+                  >
                     <img
                       src={product.image}
                       alt={product.title}
@@ -307,19 +310,17 @@ export const ExplorerPage = () => {
                     </div>
                   </Link>
 
-                  {/* Category and brand */}
-                  <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
                     {product.brand} • {product.subCategory}
                   </div>
 
-                  {/* Title */}
                   <Link to={`/product/${pId}`}>
-                    <h3 className="text-base font-bold text-slate-900 group-hover:text-indigo-600 transition-colors line-clamp-2 leading-snug mb-3">
+                    <h3 className="text-base font-bold text-slate-900 group-hover:text-indigo-600 transition-colors line-clamp-2 leading-snug mb-2.5">
                       {product.title}
                     </h3>
                   </Link>
 
-                  {/* Verdict Reasoning Snippet */}
+                  {/* Summary Verdict Callout */}
                   <div className="text-xs text-slate-600 bg-slate-50 p-2.5 rounded-xl border border-slate-100 mb-4 leading-relaxed font-medium">
                     {decision?.verdict?.summary || 'Historical pricing tracked.'}
                   </div>
@@ -329,8 +330,8 @@ export const ExplorerPage = () => {
                 <div className="pt-3 border-t border-slate-100">
                   <div className="flex items-center justify-between text-xs mb-3">
                     <DealScoreBadge score={dealScore} />
-                    <span className="text-[11px] font-semibold text-slate-500">
-                      Best on <strong className="text-slate-800">{bestPlatform?.platform}</strong>
+                    <span className="text-[11px] font-semibold text-slate-600">
+                      Cheapest on <strong className="text-slate-900">{bestPlatform?.platform}</strong>
                     </span>
                   </div>
 
@@ -339,7 +340,7 @@ export const ExplorerPage = () => {
                       <div className="text-xl font-black text-slate-900">
                         ₹{bestPlatform?.netPayablePrice?.toLocaleString('en-IN')}
                       </div>
-                      <div className="text-[11px] text-slate-600 line-through">
+                      <div className="text-[11px] text-slate-400 line-through">
                         MRP ₹{product.mrp?.toLocaleString('en-IN')}
                       </div>
                     </div>
@@ -348,7 +349,7 @@ export const ExplorerPage = () => {
                       to={`/product/${pId}`}
                       className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm"
                     >
-                      <span>Decision Suite</span>
+                      <span>Compare Prices</span>
                       <ArrowRight className="w-3.5 h-3.5" />
                     </Link>
                   </div>

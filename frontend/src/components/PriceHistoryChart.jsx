@@ -204,3 +204,4 @@ export const PriceHistoryChart = ({ history = [], avg30Price, lowest30Price, cur
     </div>
   );
 };
+

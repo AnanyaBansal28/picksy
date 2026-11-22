@@ -2,7 +2,7 @@ const Product = require('../models/Product');
 const { getIsConnected } = require('../config/db');
 const inMemoryStore = require('../config/inMemoryStore');
 
-// Platform default delivery and handling configurations
+// Platform delivery fee configurations
 const PLATFORM_CONFIG = {
   Blinkit: { defaultDelivery: 15, freeThreshold: 249, handling: 4, etaMins: 10 },
   Zepto: { defaultDelivery: 16, freeThreshold: 199, handling: 5, etaMins: 9 },
@@ -31,14 +31,17 @@ const optimizeCart = async (req, res, next) => {
       products = products.filter(Boolean);
     }
 
-    // Map cart items with full product details
-    const cartItems = items.map((cartItem) => {
-      const product = products.find((p) => (p._id || p.id).toString() === cartItem.productId.toString());
-      return {
-        product,
-        quantity: Math.max(1, parseInt(cartItem.quantity, 10) || 1),
-      };
-    }).filter((ci) => ci.product !== undefined);
+    const cartItems = items
+      .map((cartItem) => {
+        const product = products.find(
+          (p) => (p._id || p.id).toString() === cartItem.productId.toString()
+        );
+        return {
+          product,
+          quantity: Math.max(1, parseInt(cartItem.quantity, 10) || 1),
+        };
+      })
+      .filter((ci) => ci.product !== undefined);
 
     if (cartItems.length === 0) {
       return res.status(400).json({ success: false, message: 'No valid products found in cart.' });
@@ -46,9 +49,12 @@ const optimizeCart = async (req, res, next) => {
 
     const platforms = ['Blinkit', 'Zepto', 'Instamart'];
 
-    // 1. Calculate Single-Platform Cart Totals
-    const singlePlatformResults = platforms.map((platformName) => {
-      const config = PLATFORM_CONFIG[platformName] || { defaultDelivery: 20, freeThreshold: 299, handling: 4, etaMins: 12 };
+    // 1. Calculate Single-Store Checkouts for Blinkit, Zepto, and Instamart
+    const singleStoresMap = {};
+    const singleStoresList = [];
+
+    for (const platformName of platforms) {
+      const config = PLATFORM_CONFIG[platformName];
       let itemSubtotal = 0;
       let missingItems = 0;
       const itemBreakdown = [];
@@ -61,6 +67,7 @@ const optimizeCart = async (req, res, next) => {
           itemBreakdown.push({
             productId: item.product._id || item.product.id,
             title: item.product.title,
+            brand: item.product.brand,
             unitPrice: listing.basePrice,
             quantity: item.quantity,
             totalPrice: itemCost,
@@ -71,6 +78,7 @@ const optimizeCart = async (req, res, next) => {
           itemBreakdown.push({
             productId: item.product._id || item.product.id,
             title: item.product.title,
+            brand: item.product.brand,
             unitPrice: 0,
             quantity: item.quantity,
             totalPrice: 0,
@@ -84,7 +92,7 @@ const optimizeCart = async (req, res, next) => {
       const handlingFee = config.handling;
       const netTotal = itemSubtotal + deliveryFee + handlingFee;
 
-      return {
+      const storeData = {
         platform: platformName,
         itemSubtotal,
         deliveryFee,
@@ -99,12 +107,14 @@ const optimizeCart = async (req, res, next) => {
         missingItemsCount: missingItems,
         itemBreakdown,
       };
-    });
 
-    // 2. Calculate Split-Cart Option (Maximizing per-item discounts)
-    // For each item, find the platform with lowest basePrice that is in stock
-    const itemSplitAllocation = [];
-    const platformBuckets = { Blinkit: [], Zepto: [], Instamart: [] };
+      singleStoresMap[platformName.toLowerCase()] = storeData;
+      singleStoresList.push(storeData);
+    }
+
+    // 2. Compute Item-Level Split Cart Allocation
+    // For each item, allocate to the platform with lowest basePrice
+    const splitBuckets = { Blinkit: [], Zepto: [], Instamart: [] };
 
     for (const item of cartItems) {
       let cheapestListing = null;
@@ -120,112 +130,131 @@ const optimizeCart = async (req, res, next) => {
       }
 
       if (cheapestListing) {
-        const allocatedPlatform = cheapestListing.platform;
+        const platform = cheapestListing.platform;
         const lineTotal = cheapestListing.basePrice * item.quantity;
-        
-        platformBuckets[allocatedPlatform].push({
+
+        splitBuckets[platform].push({
           productId: item.product._id || item.product.id,
           title: item.product.title,
+          brand: item.product.brand,
           unitPrice: cheapestListing.basePrice,
           quantity: item.quantity,
           lineTotal,
         });
-
-        itemSplitAllocation.push({
-          product: item.product.title,
-          chosenPlatform: allocatedPlatform,
-          price: cheapestListing.basePrice,
-          quantity: item.quantity,
-          lineTotal,
-        });
       }
     }
 
-    // Calculate split cart totals across utilized platforms
-    let splitItemSubtotal = 0;
-    let splitDeliveryFees = 0;
-    let splitHandlingFees = 0;
-    const splitPlatformsUsed = [];
+    // Calculate totals for the split plan
+    let splitItemsSubtotal = 0;
+    let splitTotalDelivery = 0;
+    let splitTotalHandling = 0;
+    const splitGroups = [];
 
     for (const platformName of platforms) {
-      const bucket = platformBuckets[platformName];
-      if (bucket && bucket.length > 0) {
-        const bucketSubtotal = bucket.reduce((sum, i) => sum + i.lineTotal, 0);
+      const itemsInPlatform = splitBuckets[platformName];
+      if (itemsInPlatform && itemsInPlatform.length > 0) {
+        const groupSubtotal = itemsInPlatform.reduce((sum, i) => sum + i.lineTotal, 0);
         const config = PLATFORM_CONFIG[platformName];
-        const unlockedFree = bucketSubtotal >= config.freeThreshold;
+        const unlockedFree = groupSubtotal >= config.freeThreshold;
         const delivery = unlockedFree ? 0 : config.defaultDelivery;
         const handling = config.handling;
 
-        splitItemSubtotal += bucketSubtotal;
-        splitDeliveryFees += delivery;
-        splitHandlingFees += handling;
+        splitItemsSubtotal += groupSubtotal;
+        splitTotalDelivery += delivery;
+        splitTotalHandling += handling;
 
-        splitPlatformsUsed.push({
+        splitGroups.push({
           platform: platformName,
-          itemsCount: bucket.length,
-          subtotal: bucketSubtotal,
+          items: itemsInPlatform,
+          itemsCount: itemsInPlatform.length,
+          subtotal: groupSubtotal,
           deliveryFee: delivery,
           handlingFee: handling,
+          storeTotal: groupSubtotal + delivery + handling,
           freeDeliveryUnlocked: unlockedFree,
           freeDeliveryThreshold: config.freeThreshold,
+          amountNeededForFreeDelivery: Math.max(0, config.freeThreshold - groupSubtotal),
           eta: `${config.etaMins} Mins`,
-          items: bucket,
         });
       }
     }
 
-    const splitNetTotal = splitItemSubtotal + splitDeliveryFees + splitHandlingFees;
+    const splitNetTotal = splitItemsSubtotal + splitTotalDelivery + splitTotalHandling;
 
-    // 3. Identify Cheapest and Fastest
-    const fullyStockedSingle = singlePlatformResults.filter((p) => p.allInStock);
-    const candidateSingle = fullyStockedSingle.length > 0 ? fullyStockedSingle : singlePlatformResults;
-    
-    // Sort by netTotal ascending
-    const sortedByPrice = [...candidateSingle].sort((a, b) => a.netTotal - b.netTotal);
-    const cheapestSingle = sortedByPrice[0];
+    // 3. Compare Split Cart vs Single Store Options
+    const sortedSingleStores = [...singleStoresList].sort((a, b) => a.netTotal - b.netTotal);
+    const cheapestSingle = sortedSingleStores[0];
+    const mostExpensiveSingle = sortedSingleStores[sortedSingleStores.length - 1];
 
-    // Sort by ETA ascending
-    const sortedByEta = [...candidateSingle].sort((a, b) => a.etaMinutes - b.etaMinutes);
-    const fastestSingle = sortedByEta[0];
+    const blinkitTotal = singleStoresMap.blinkit.netTotal;
+    const zeptoTotal = singleStoresMap.zepto.netTotal;
+    const instamartTotal = singleStoresMap.instamart.netTotal;
 
-    // Determine if Split Cart is genuinely worthwhile
-    const singleVsSplitDiff = cheapestSingle.netTotal - splitNetTotal;
-    const isSplitCheaper = singleVsSplitDiff > 5 && splitPlatformsUsed.length > 1;
+    const savingsVsCheapestSingle = cheapestSingle.netTotal - splitNetTotal;
+    const savingsVsBlinkit = blinkitTotal - splitNetTotal;
+    const savingsVsZepto = zeptoTotal - splitNetTotal;
+    const savingsVsInstamart = instamartTotal - splitNetTotal;
 
-    let splitRecommendationNote = '';
+    // A split is genuinely recommended if it saves money AND spans 2+ stores
+    const isSplitCheaper = savingsVsCheapestSingle > 0 && splitGroups.length > 1;
+
+    let badgeText = '';
+    let explanation = '';
+
     if (isSplitCheaper) {
-      splitRecommendationNote = `Split order saves ₹${singleVsSplitDiff} by sourcing individual groceries at each app's lowest promotional price.`;
-    } else if (splitPlatformsUsed.length > 1) {
-      splitRecommendationNote = `Single cart on ${cheapestSingle.platform} is smarter. Splitting across multiple apps triggers redundant delivery/handling fees (₹${splitDeliveryFees + splitHandlingFees}) that outweigh individual item discounts.`;
+      const comparisonParts = [];
+      if (savingsVsZepto > 0) comparisonParts.push(`₹${savingsVsZepto} vs Zepto`);
+      if (savingsVsBlinkit > 0) comparisonParts.push(`₹${savingsVsBlinkit} vs Blinkit`);
+      if (savingsVsInstamart > 0) comparisonParts.push(`₹${savingsVsInstamart} vs Instamart`);
+
+      badgeText = `Save ${comparisonParts.slice(0, 2).join(' & ')}!`;
+      explanation = `Splitting your cart saves ₹${savingsVsCheapestSingle} compared to the cheapest single app (${cheapestSingle.platform}) by getting each item from the store running the lowest price promo.`;
+    } else if (splitGroups.length > 1) {
+      badgeText = `Single App is Cheaper on this Cart`;
+      explanation = `Ordering everything from ${cheapestSingle.platform} (₹${cheapestSingle.netTotal}) is actually ₹${Math.abs(
+        savingsVsCheapestSingle
+      )} cheaper. Splitting into multiple orders triggers duplicate delivery/handling fees (₹${splitTotalDelivery + splitTotalHandling}) that wipe out item discounts.`;
     } else {
-      splitRecommendationNote = `All items are already cheapest on ${cheapestSingle.platform}. Single cart is optimal.`;
+      badgeText = `${cheapestSingle.platform} has the Lowest Prices`;
+      explanation = `All items in your cart are already cheapest on ${cheapestSingle.platform}. No split required.`;
     }
+
+    // Sort by ETA for fastest
+    const fastestStore = [...singleStoresList].sort((a, b) => a.etaMinutes - b.etaMinutes)[0];
 
     res.json({
       success: true,
       cartCount: cartItems.length,
-      singlePlatformOptions: singlePlatformResults,
-      cheapestOption: {
-        platform: isSplitCheaper ? 'Split Cart Optimization' : cheapestSingle.platform,
-        netTotal: isSplitCheaper ? splitNetTotal : cheapestSingle.netTotal,
-        savingsVsWorst: Math.max(0, sortedByPrice[sortedByPrice.length - 1].netTotal - (isSplitCheaper ? splitNetTotal : cheapestSingle.netTotal)),
-        isSplit: isSplitCheaper,
+      // Option 1: The Smart Split Plan
+      smartSplitOption: {
+        isRecommended: isSplitCheaper,
+        totalCost: splitNetTotal,
+        itemsSubtotal: splitItemsSubtotal,
+        deliveryFees: splitTotalDelivery,
+        handlingFees: splitTotalHandling,
+        storesCount: splitGroups.length,
+        groups: splitGroups,
+        savingsVsCheapestSingle: Math.max(0, savingsVsCheapestSingle),
+        savingsVsBlinkit,
+        savingsVsZepto,
+        savingsVsInstamart,
+        badgeText,
+        explanation,
       },
-      fastestOption: {
-        platform: fastestSingle.platform,
-        eta: fastestSingle.eta,
-        netTotal: fastestSingle.netTotal,
+      // Options 2, 3, 4: Individual Store Checkouts
+      singleStores: {
+        blinkit: singleStoresMap.blinkit,
+        zepto: singleStoresMap.zepto,
+        instamart: singleStoresMap.instamart,
       },
-      splitCartAnalysis: {
-        isCheaper: isSplitCheaper,
-        netTotal: splitNetTotal,
-        savings: Math.max(0, singleVsSplitDiff),
-        itemSubtotal: splitItemSubtotal,
-        totalDeliveryFees: splitDeliveryFees,
-        totalHandlingFees: splitHandlingFees,
-        platformsUsedCount: splitPlatformsUsed.length,
-        platformsUsed: splitPlatformsUsed,
-        recommendationNote: splitRecommendationNote,
+      cheapestSingleStore: {
+        platform: cheapestSingle.platform,
+        netTotal: cheapestSingle.netTotal,
+      },
+      fastestStore: {
+        platform: fastestStore.platform,
+        eta: fastestStore.eta,
+        netTotal: fastestStore.netTotal,
       },
     });
   } catch (error) {

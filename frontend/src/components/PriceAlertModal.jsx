@@ -179,3 +179,4 @@ export const PriceAlertModal = ({ product, isOpen, onClose, onSuccess }) => {
     </div>
   );
 };
+

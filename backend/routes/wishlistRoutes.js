@@ -10,3 +10,4 @@ router.post('/:productId', addToWishlist);
 router.delete('/:productId', removeFromWishlist);
 
 module.exports = router;
+

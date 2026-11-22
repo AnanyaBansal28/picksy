@@ -16,13 +16,39 @@ const getProducts = async (req, res, next) => {
       const filter = {};
       if (category) filter.category = category;
       if (subCategory && subCategory !== 'All') filter.subCategory = subCategory;
-      if (search) {
-        filter.$or = [
-          { title: { $regex: search, $options: 'i' } },
-          { brand: { $regex: search, $options: 'i' } },
-          { tags: { $in: [new RegExp(search, 'i')] } },
-        ];
+
+      if (search && search.trim()) {
+        const queryLower = search.trim().toLowerCase();
+        const words = queryLower.split(/\s+/).filter(Boolean);
+
+        const isOnlyPhone = words.some((w) => w === 'phone' || w === 'phones' || w === 'iphone' || w === 'smartphone');
+        const hasAudioWord = words.some((w) => w.includes('head') || w.includes('ear') || w.includes('audio') || w.includes('sound'));
+
+        if (isOnlyPhone && !hasAudioWord) {
+          // Strictly match phones and exclude headphones
+          filter.$and = [
+            {
+              $or: [
+                { subCategory: 'Smartphones' },
+                { title: { $regex: '\\b(iphone|phone|smartphone|mobile)\\b', $options: 'i' } },
+                { brand: { $regex: search, $options: 'i' } },
+              ],
+            },
+            {
+              title: { $not: { $regex: 'headphone', $options: 'i' } },
+            },
+          ];
+        } else {
+          // Standard smart matching
+          filter.$or = [
+            { title: { $regex: search.trim(), $options: 'i' } },
+            { brand: { $regex: search.trim(), $options: 'i' } },
+            { subCategory: { $regex: search.trim(), $options: 'i' } },
+            { tags: { $in: words.map((w) => new RegExp(`^${w}$|${w}`, 'i')) } },
+          ];
+        }
       }
+
       products = await Product.find(filter).lean();
     } else {
       products = await inMemoryStore.products.find({
@@ -36,7 +62,7 @@ const getProducts = async (req, res, next) => {
     let enhancedProducts = products.map((prod) => {
       const decisionMetrics = calculateDecisionMetrics(prod);
       const lowestNetPrice = decisionMetrics ? decisionMetrics.cheapestPlatform.netPayablePrice : prod.mrp;
-      
+
       return {
         ...prod,
         decision: decisionMetrics,
@@ -119,9 +145,9 @@ const getSpotlightDeals = async (req, res, next) => {
   try {
     let products = [];
     if (getIsConnected()) {
-      products = await Product.find({}).lean();
+      products = await Product.find({ category: 'ecommerce' }).lean();
     } else {
-      products = await inMemoryStore.products.find({});
+      products = await inMemoryStore.products.find({ category: 'ecommerce' });
     }
 
     const analyzed = products.map((p) => {
@@ -132,7 +158,6 @@ const getSpotlightDeals = async (req, res, next) => {
       };
     });
 
-    // Top recommended deals with high deal scores
     analyzed.sort((a, b) => (b.decision?.realDealScore.score || 0) - (a.decision?.realDealScore.score || 0));
 
     res.json({

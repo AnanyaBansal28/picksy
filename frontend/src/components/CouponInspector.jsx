@@ -113,3 +113,4 @@ export const CouponInspector = ({ platformListings = [] }) => {
     </div>
   );
 };
+

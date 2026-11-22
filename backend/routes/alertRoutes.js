@@ -10,3 +10,4 @@ router.post('/', createAlert);
 router.delete('/:id', deleteAlert);
 
 module.exports = router;
+

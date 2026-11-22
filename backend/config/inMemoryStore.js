@@ -1,6 +1,60 @@
 const { sampleProducts } = require('../seed/seedData');
 const bcrypt = require('bcryptjs');
 
+function matchesSearch(product, searchQuery) {
+  if (!searchQuery || !searchQuery.trim()) return true;
+
+  const query = searchQuery.trim().toLowerCase();
+  const queryWords = query.split(/\s+/).filter(Boolean);
+
+  const title = (product.title || '').toLowerCase();
+  const brand = (product.brand || '').toLowerCase();
+  const subCategory = (product.subCategory || '').toLowerCase();
+  const category = (product.category || '').toLowerCase();
+  const tags = (product.tags || []).map((t) => t.toLowerCase());
+
+  // Strict disambiguation: "phone" vs "headphones"
+  const isQueryOnlyPhone = queryWords.some((w) => w === 'phone' || w === 'phones' || w === 'iphone' || w === 'smartphone');
+  const queryHasAudio = queryWords.some((w) =>
+    w.includes('head') || w.includes('ear') || w.includes('audio') || w.includes('sound') || w.includes('music')
+  );
+
+  if (isQueryOnlyPhone && !queryHasAudio) {
+    if (
+      subCategory.includes('audio') ||
+      subCategory.includes('wearables') ||
+      title.includes('headphone') ||
+      title.includes('earphone') ||
+      title.includes('airpods')
+    ) {
+      const hasPhoneWord = /\bphone(s)?\b/i.test(title) || /\biphone\b/i.test(title) || /\bsmartphone\b/i.test(title);
+      if (!hasPhoneWord) {
+        return false;
+      }
+    }
+  }
+
+  return queryWords.every((word) => {
+    if (word === 'phone' || word === 'phones') {
+      return (
+        /\bphone(s)?\b/i.test(title) ||
+        /\biphone\b/i.test(title) ||
+        /\bsmartphone(s)?\b/i.test(title) ||
+        subCategory.includes('smartphones') ||
+        tags.some((t) => t === 'phone' || t === 'smartphone' || t === 'iphone' || t === 'mobile')
+      );
+    }
+
+    return (
+      title.includes(word) ||
+      brand.includes(word) ||
+      subCategory.includes(word) ||
+      category.includes(word) ||
+      tags.some((t) => t.includes(word))
+    );
+  });
+}
+
 // In-Memory storage initialized with realistic IDs and seeded products
 let memoryProducts = sampleProducts.map((p, idx) => ({
   ...p,
@@ -16,10 +70,9 @@ let memoryUsers = [
     id: 'user_default_1',
     name: 'Aarav Sharma',
     email: 'aarav@picksy.io',
-    // Pre-hashed for 'picksy123'
     password: bcrypt.hashSync('picksy123', 10),
     role: 'user',
-    wishlist: ['prod_101', 'prod_103'],
+    wishlist: ['prod_101', 'prod_104'],
     createdAt: new Date().toISOString(),
   },
 ];
@@ -29,7 +82,7 @@ let memoryAlerts = [
     _id: 'alert_1',
     id: 'alert_1',
     userId: 'user_default_1',
-    productId: 'prod_102', // Sony XM5
+    productId: 'prod_104', // Sony XM5
     targetPrice: 25000,
     currentPriceAtCreation: 29990,
     status: 'active',
@@ -49,13 +102,7 @@ const inMemoryStore = {
         results = results.filter((p) => p.subCategory.toLowerCase() === query.subCategory.toLowerCase());
       }
       if (query.search) {
-        const s = query.search.toLowerCase();
-        results = results.filter(
-          (p) =>
-            p.title.toLowerCase().includes(s) ||
-            p.brand.toLowerCase().includes(s) ||
-            (p.tags && p.tags.some((t) => t.toLowerCase().includes(s)))
-        );
+        results = results.filter((p) => matchesSearch(p, query.search));
       }
       return results;
     },
@@ -142,7 +189,6 @@ const inMemoryStore = {
     find: async (query) => {
       if (query.userId) {
         const userAlerts = memoryAlerts.filter((a) => a.userId === query.userId);
-        // Populate product
         return userAlerts.map((a) => {
           const product = memoryProducts.find((p) => p._id === a.productId || p.id === a.productId);
           return {

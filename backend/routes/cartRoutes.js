@@ -5,3 +5,4 @@ const { optimizeCart } = require('../controllers/cartController');
 router.post('/optimize', optimizeCart);
 
 module.exports = router;
+
