@@ -44,6 +44,7 @@ export const ExplorerPage = () => {
   // URL Analyzer state
   const [isAnalyzingUrl, setIsAnalyzingUrl] = useState(false);
   const [urlError, setUrlError] = useState('');
+  const [customPrice, setCustomPrice] = useState('');
 
   // Price Alert Modal State
   const [alertProduct, setAlertProduct] = useState(null);
@@ -99,7 +100,11 @@ export const ExplorerPage = () => {
 
     setIsAnalyzingUrl(true);
     try {
-      const res = await productService.analyzeUrl({ url: search.trim() });
+      const payload = { url: search.trim() };
+      if (customPrice && !isNaN(Number(customPrice)) && Number(customPrice) > 0) {
+        payload.currentPrice = Number(customPrice);
+      }
+      const res = await productService.analyzeUrl(payload);
       if (res.data?.success && res.data.product) {
         navigate(`/product/${res.data.product._id || res.data.product.id}`);
       } else {
@@ -181,6 +186,21 @@ export const ExplorerPage = () => {
                   >
                     <X className="w-3.5 h-3.5" />
                   </button>
+                )}
+                {isLinkInput && (
+                  <div className="flex items-center border-l border-slate-200 pl-2 pr-1">
+                    <span className="text-[11px] font-black text-indigo-700 mr-0.5">₹</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="1000000"
+                      value={customPrice}
+                      onChange={(e) => setCustomPrice(e.target.value)}
+                      placeholder="Price (opt)"
+                      className="w-18 sm:w-24 py-0.5 text-[11px] font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-none"
+                      title="Optional: Current store price (e.g. 499)"
+                    />
+                  </div>
                 )}
                 {isLinkInput ? (
                   <button

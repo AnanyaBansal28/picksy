@@ -25,6 +25,7 @@ export const HomePage = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchTab, setSearchTab] = useState('keyword'); // 'keyword' | 'link'
   const [linkInput, setLinkInput] = useState('');
+  const [linkPrice, setLinkPrice] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [urlError, setUrlError] = useState('');
 
@@ -99,7 +100,11 @@ export const HomePage = () => {
 
     setIsAnalyzing(true);
     try {
-      const res = await productService.analyzeUrl({ url: linkInput.trim() });
+      const payload = { url: linkInput.trim() };
+      if (linkPrice && !isNaN(Number(linkPrice)) && Number(linkPrice) > 0) {
+        payload.currentPrice = Number(linkPrice);
+      }
+      const res = await productService.analyzeUrl(payload);
       if (res.data?.success && res.data.product) {
         navigate(`/product/${res.data.product._id || res.data.product.id}`);
       } else {
@@ -253,22 +258,39 @@ export const HomePage = () => {
                 /* Mode B: Buyhatke-style Link Analyzer Form */
                 <form
                   onSubmit={handleLinkAnalyze}
-                  className="relative flex items-center shadow-elevated rounded-2xl bg-white border-2 border-indigo-500 transition-all p-1.5"
+                  className="relative flex flex-col sm:flex-row items-stretch sm:items-center shadow-elevated rounded-2xl bg-white border-2 border-indigo-500 transition-all p-1.5 gap-2 sm:gap-1.5"
                 >
-                  <LinkIcon className="w-5 h-5 text-indigo-600 ml-3.5 flex-shrink-0" />
-                  <input
-                    type="url"
-                    value={linkInput}
-                    onChange={(e) => setLinkInput(e.target.value)}
-                    placeholder="Paste link: https://www.amazon.in/dp/... or Flipkart URL"
-                    required
-                    autoFocus
-                    className="w-full px-3 py-2.5 text-sm font-medium text-slate-900 placeholder-slate-400 focus:outline-none"
-                  />
+                  <div className="flex items-center flex-1 min-w-0">
+                    <LinkIcon className="w-5 h-5 text-indigo-600 ml-3.5 shrink-0" />
+                    <input
+                      type="url"
+                      value={linkInput}
+                      onChange={(e) => setLinkInput(e.target.value)}
+                      placeholder="Paste link: https://www.amazon.in/dp/... or Flipkart URL"
+                      required
+                      autoFocus
+                      className="w-full px-3 py-2 text-sm font-medium text-slate-900 placeholder-slate-400 focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="flex items-center sm:border-l border-slate-200 pl-3 pr-2 py-1 shrink-0 bg-slate-50 sm:bg-transparent rounded-xl sm:rounded-none">
+                    <span className="text-xs font-black text-indigo-700 mr-1.5">₹</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="1000000"
+                      value={linkPrice}
+                      onChange={(e) => setLinkPrice(e.target.value)}
+                      placeholder="Current Store Price (₹)"
+                      className="w-full sm:w-44 py-1 text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-none"
+                      title="Optional: Enter current product price seen on the store for instant 100% exact comparison"
+                    />
+                  </div>
+
                   <button
                     type="submit"
                     disabled={isAnalyzing}
-                    className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-extrabold transition-all shadow-sm flex items-center gap-1.5 flex-shrink-0 cursor-pointer"
+                    className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-extrabold transition-all shadow-sm flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
                   >
                     {isAnalyzing ? (
                       <>

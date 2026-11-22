@@ -164,6 +164,78 @@ const getSpotlightDeals = async (req, res, next) => {
 };
 
 /**
+ * Simple 32-bit FNV-1a deterministic hash function for pseudo-random yet stable pricing & images
+ */
+const getDeterministicHash = (str) => {
+  let hash = 2166136261;
+  const s = String(str || '');
+  for (let i = 0; i < s.length; i++) {
+    hash ^= s.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return Math.abs(hash);
+};
+
+// Curated pool of high-resolution Unsplash product images for dynamic links
+const CATEGORY_IMAGES = {
+  toys: [
+    'https://images.unsplash.com/photo-1596461404969-9ae70f2830c1?w=600&auto=format&fit=crop&q=80',
+    'https://images.unsplash.com/photo-1515488042361-ee00e0ddd4e4?w=600&auto=format&fit=crop&q=80',
+    'https://images.unsplash.com/photo-1566576912321-d58ddd7a6088?w=600&auto=format&fit=crop&q=80',
+    'https://images.unsplash.com/photo-1558060370-d644479cb6f7?w=600&auto=format&fit=crop&q=80',
+  ],
+  cases: [
+    'https://images.unsplash.com/photo-1584438784894-089d6a62b8fa?w=600&auto=format&fit=crop&q=80',
+    'https://images.unsplash.com/photo-1601784551446-20c9e07cdbdb?w=600&auto=format&fit=crop&q=80',
+    'https://images.unsplash.com/photo-1574944985070-8f3ebc6b79d2?w=600&auto=format&fit=crop&q=80',
+  ],
+  cables: [
+    'https://images.unsplash.com/photo-1583863788434-e58a36330cf0?w=600&auto=format&fit=crop&q=80',
+    'https://images.unsplash.com/photo-1619725002198-6a689b72f41d?w=600&auto=format&fit=crop&q=80',
+    'https://images.unsplash.com/photo-1591488320449-011701bb6704?w=600&auto=format&fit=crop&q=80',
+  ],
+  kitchen: [
+    'https://images.unsplash.com/photo-1602143407151-7111542de6e8?w=600&auto=format&fit=crop&q=80',
+    'https://images.unsplash.com/photo-1544816155-12df9643f363?w=600&auto=format&fit=crop&q=80',
+    'https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?w=600&auto=format&fit=crop&q=80',
+  ],
+  stands: [
+    'https://images.unsplash.com/photo-1586105251261-72a756497a11?w=600&auto=format&fit=crop&q=80',
+    'https://images.unsplash.com/photo-1512499617640-c74ae3a79d37?w=600&auto=format&fit=crop&q=80',
+  ],
+  smartphones: [
+    'https://images.unsplash.com/photo-1695048133142-1a20484d2569?w=600&auto=format&fit=crop&q=80',
+    'https://images.unsplash.com/photo-1610945265064-0e34e5519bbf?w=600&auto=format&fit=crop&q=80',
+    'https://images.unsplash.com/photo-1592899677977-9c10ca588bbd?w=600&auto=format&fit=crop&q=80',
+  ],
+  audio: [
+    'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=600&auto=format&fit=crop&q=80',
+    'https://images.unsplash.com/photo-1590658268037-6bf12165a8df?w=600&auto=format&fit=crop&q=80',
+    'https://images.unsplash.com/photo-1546435770-a3e426bf472b?w=600&auto=format&fit=crop&q=80',
+  ],
+  laptops: [
+    'https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=600&auto=format&fit=crop&q=80',
+    'https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=600&auto=format&fit=crop&q=80',
+  ],
+  smartwatches: [
+    'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&auto=format&fit=crop&q=80',
+    'https://images.unsplash.com/photo-1508685096489-7aacd43bd3b1?w=600&auto=format&fit=crop&q=80',
+  ],
+  beauty: [
+    'https://images.unsplash.com/photo-1556228720-195a672e8a03?w=600&auto=format&fit=crop&q=80',
+    'https://images.unsplash.com/photo-1608248597359-009f456e72b4?w=600&auto=format&fit=crop&q=80',
+  ],
+  fashion: [
+    'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=600&auto=format&fit=crop&q=80',
+    'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=600&auto=format&fit=crop&q=80',
+  ],
+  general: [
+    'https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=600&auto=format&fit=crop&q=80',
+    'https://images.unsplash.com/photo-1588872657578-7efd1f1555ed?w=600&auto=format&fit=crop&q=80',
+  ],
+};
+
+/**
  * Canonicalizes pasted product URLs by stripping all query parameters (?crid=..., &dib=..., etc.),
  * tracking tags, ref anchors, and session parameters, retaining only the clean canonical path.
  */
@@ -207,10 +279,15 @@ const getCanonicalProductUrl = (rawUrl) => {
 // @access  Public
 const analyzeUrl = async (req, res, next) => {
   try {
-    const { url } = req.body;
+    const { url, currentPrice, userPrice } = req.body;
     if (!url || typeof url !== 'string' || !url.trim()) {
       return res.status(400).json({ success: false, message: 'Please provide a valid product URL.' });
     }
+
+    // Check if user explicitly passed a custom store price
+    const rawEnteredPrice = currentPrice !== undefined ? currentPrice : userPrice;
+    const enteredPrice = Number(rawEnteredPrice);
+    const hasUserPrice = !isNaN(enteredPrice) && enteredPrice > 0;
 
     // Strip query parameters (?crid=..., &dib=..., etc.) and hash fragments
     const canonicalUrl = getCanonicalProductUrl(url);
@@ -253,6 +330,10 @@ const analyzeUrl = async (req, res, next) => {
       .replace(/[-_+]/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
+
+    // Deterministic hash seed based on canonical URL and slug
+    const seed = getDeterministicHash(canonicalUrl || keywords);
+    const normalizedSeed = (seed % 1000) / 1000;
 
     // 1. Attempt lightweight server-side fetch with standard browser User-Agent header (3-second timeout)
     let fetchedTitle = '';
@@ -338,7 +419,6 @@ const analyzeUrl = async (req, res, next) => {
     }
 
     // 2. Smart Metadata & Keyword Detection Rules
-    // Inspect fetched title, slug keywords, and full URL tokens (including search query terms like ?keywords=kids+phone+toy)
     const combinedAnalysisText = `${fetchedTitle} ${keywords} ${url}`.toLowerCase();
 
     // Detect Toys / Kids / Covers / Cables / Accessories BEFORE matching "phone" or "watch"
@@ -363,12 +443,20 @@ const analyzeUrl = async (req, res, next) => {
 
     // Match keywords against catalog (Guard strictly prevents matching phones/laptops for toys or covers)
     const searchWords = (fetchedTitle || keywords).toLowerCase().split(/\s+/).filter((w) => w.length > 2);
+    const genericStopWords = new Set([
+      'wireless', 'headphone', 'headphones', 'earphone', 'earphones', 'earbuds',
+      'bluetooth', 'black', 'white', 'smart', 'case', 'cover', 'cable', 'charger',
+      'device', 'edition', 'pack', 'unit', 'ultra', 'fast', 'plus', 'pro', 'max',
+      'online', 'india', 'best', 'price'
+    ]);
+
     let matchedProduct = null;
     let highestMatchScore = 0;
 
     for (const prod of allProducts) {
       const prodSubCategory = (prod.subCategory || '').toLowerCase();
       const prodTitle = (prod.title || '').toLowerCase();
+      const prodBrand = (prod.brand || '').toLowerCase();
       const prodText = `${prod.title} ${prod.brand} ${prod.subCategory} ${(prod.tags || []).join(' ')}`.toLowerCase();
 
       // Guard 1: If query is an accessory or toy, NEVER match a real smartphone/laptop catalog item
@@ -384,18 +472,44 @@ const analyzeUrl = async (req, res, next) => {
       }
 
       let matchCount = 0;
+      let brandMatched = prodBrand && searchWords.includes(prodBrand);
+      let distinctiveMatches = 0;
+
       for (const word of searchWords) {
-        if (prodText.includes(word)) matchCount++;
+        if (prodText.includes(word)) {
+          matchCount++;
+          if (!genericStopWords.has(word)) {
+            distinctiveMatches++;
+          }
+        }
       }
-      if (matchCount > highestMatchScore) {
-        highestMatchScore = matchCount;
-        matchedProduct = prod;
+
+      // Require either matching brand + at least 1 distinctive word, OR at least 2 non-generic distinctive words
+      if ((brandMatched && distinctiveMatches >= 1) || distinctiveMatches >= 2) {
+        if (matchCount > highestMatchScore) {
+          highestMatchScore = matchCount;
+          matchedProduct = prod;
+        }
       }
     }
 
     // If strong match (at least 2 words or exact brand/device), return catalog item
     if (matchedProduct && highestMatchScore >= 2) {
-      const decision = calculateDecisionMetrics(matchedProduct);
+      let finalMatched = { ...matchedProduct };
+      // If user provided custom price, adjust the detected platform's price
+      if (hasUserPrice && finalMatched.platformListings && finalMatched.platformListings.length > 0) {
+        finalMatched.platformListings = finalMatched.platformListings.map((listing) => {
+          if (listing.platform.toLowerCase() === detectedPlatform.toLowerCase()) {
+            return {
+              ...listing,
+              basePrice: Math.round(enteredPrice),
+              productUrl: canonicalUrl,
+            };
+          }
+          return listing;
+        });
+      }
+      const decision = calculateDecisionMetrics(finalMatched);
       return res.json({
         success: true,
         isExisting: true,
@@ -404,14 +518,14 @@ const analyzeUrl = async (req, res, next) => {
         keywords,
         detectedPlatform,
         product: {
-          ...matchedProduct,
+          ...finalMatched,
           decision,
-          lowestPrice: decision?.cheapestPlatform?.netPayablePrice || matchedProduct.mrp,
+          lowestPrice: decision?.cheapestPlatform?.netPayablePrice || finalMatched.mrp,
         },
       });
     }
 
-    // Otherwise, generate a realistic product based on smart classification hierarchy
+    // 3. Determine Category, SubCategory, and Image Pool
     const displayTitle = fetchedTitle
       ? fetchedTitle
       : keywords
@@ -420,93 +534,135 @@ const analyzeUrl = async (req, res, next) => {
 
     let determinedCategory = 'ecommerce';
     let determinedSubCategory = 'General Merchandise';
-    let fallbackImage = 'https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=600&auto=format&fit=crop&q=80';
-    let heuristicBasePrice = 899;
+    let imagePoolKey = 'general';
     let extractedBrand = displayTitle.split(' ')[0] || detectedPlatform;
+    let computedPseudoPrice = 699;
 
-    // Apply strict fallback hierarchy
     if (isKidsOrToy) {
       determinedSubCategory = 'Toys & Kids';
-      // Realistic pricing: ₹349 – ₹599 for toys & kids items
-      heuristicBasePrice = 399;
-      fallbackImage = 'https://images.unsplash.com/photo-1596461404969-9ae70f2830c1?w=600&auto=format&fit=crop&q=80';
+      imagePoolKey = 'toys';
       if (!extractedBrand || extractedBrand.length < 3) extractedBrand = 'PlayVibe Kids';
+      // Deterministic dynamic price between ₹299 – ₹899
+      computedPseudoPrice = Math.round((299 + normalizedSeed * (899 - 299)) / 10) * 10 - 1;
     } else if (isCaseOrCover) {
       determinedSubCategory = 'Mobile Accessories & Cases';
-      // Realistic pricing: ₹299 – ₹599 for cases & covers
-      heuristicBasePrice = 349;
-      fallbackImage = 'https://images.unsplash.com/photo-1584438784894-089d6a62b8fa?w=600&auto=format&fit=crop&q=80';
+      imagePoolKey = 'cases';
+      // Deterministic dynamic price between ₹249 – ₹799
+      computedPseudoPrice = Math.round((249 + normalizedSeed * (799 - 249)) / 10) * 10 - 1;
     } else if (isCableOrCharger) {
       determinedSubCategory = 'Cables & Chargers';
-      // Realistic pricing: ₹399 – ₹799
-      heuristicBasePrice = 499;
-      fallbackImage = 'https://images.unsplash.com/photo-1583863788434-e58a36330cf0?w=600&auto=format&fit=crop&q=80';
+      imagePoolKey = 'cables';
+      // Deterministic dynamic price between ₹349 – ₹999
+      computedPseudoPrice = Math.round((349 + normalizedSeed * (999 - 349)) / 10) * 10 - 1;
     } else if (isBottleOrKitchen) {
       determinedSubCategory = 'Home & Kitchen';
-      // Realistic pricing: ₹499 – ₹899
-      heuristicBasePrice = 599;
-      fallbackImage = 'https://images.unsplash.com/photo-1602143407151-7111542de6e8?w=600&auto=format&fit=crop&q=80';
+      imagePoolKey = 'kitchen';
+      // Deterministic dynamic price between ₹399 – ₹1,299
+      computedPseudoPrice = Math.round((399 + normalizedSeed * (1299 - 399)) / 10) * 10 - 1;
     } else if (isStandOrHolder) {
       determinedSubCategory = 'Desk & Mobile Accessories';
-      // Realistic pricing: ₹349 – ₹699
-      heuristicBasePrice = 449;
-      fallbackImage = 'https://images.unsplash.com/photo-1586105251261-72a756497a11?w=600&auto=format&fit=crop&q=80';
+      imagePoolKey = 'stands';
+      // Deterministic dynamic price between ₹299 – ₹799
+      computedPseudoPrice = Math.round((299 + normalizedSeed * (799 - 299)) / 10) * 10 - 1;
     } else if (isRealSmartphone) {
       determinedSubCategory = 'Smartphones';
-      fallbackImage = 'https://images.unsplash.com/photo-1695048133142-1a20484d2569?w=600&auto=format&fit=crop&q=80';
+      imagePoolKey = 'smartphones';
       if (/iphone/i.test(combinedAnalysisText)) {
-        heuristicBasePrice = 64999;
         extractedBrand = 'Apple';
+        computedPseudoPrice = Math.round((54999 + normalizedSeed * (79900 - 54999)) / 100) * 100 - 1;
       } else if (/samsung\s*galaxy|galaxy/i.test(combinedAnalysisText)) {
-        heuristicBasePrice = 59999;
         extractedBrand = 'Samsung';
+        computedPseudoPrice = Math.round((24999 + normalizedSeed * (74999 - 24999)) / 100) * 100 - 1;
       } else if (/oneplus/i.test(combinedAnalysisText)) {
-        heuristicBasePrice = 39999;
         extractedBrand = 'OnePlus';
+        computedPseudoPrice = Math.round((32999 + normalizedSeed * (49999 - 32999)) / 100) * 100 - 1;
       } else if (/pixel/i.test(combinedAnalysisText)) {
-        heuristicBasePrice = 43999;
         extractedBrand = 'Google';
+        computedPseudoPrice = Math.round((34999 + normalizedSeed * (52999 - 34999)) / 100) * 100 - 1;
       } else {
-        heuristicBasePrice = 14999;
+        computedPseudoPrice = Math.round((13999 + normalizedSeed * (24999 - 13999)) / 100) * 100 - 1;
       }
     } else if (/\b(headphone|headphones|earphone|earphones|airpods|earbuds|buds|wh-1000xm|noise\s*cancelling)\b/i.test(combinedAnalysisText)) {
-      determinedSubCategory = 'Audio & Headphones';
-      heuristicBasePrice = /xm5|airpods\s*max/i.test(combinedAnalysisText) ? 26990 : 3499;
-      fallbackImage = 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=600&auto=format&fit=crop&q=80';
+      determinedSubCategory = 'Audio & Wearables';
+      imagePoolKey = 'audio';
+      if (/xm5|airpods\s*max/i.test(combinedAnalysisText)) {
+        computedPseudoPrice = Math.round((18999 + normalizedSeed * (29999 - 18999)) / 100) * 100 - 10;
+      } else {
+        // Deterministic dynamic price between ₹1,499 – ₹4,999
+        computedPseudoPrice = Math.round((1499 + normalizedSeed * (4999 - 1499)) / 50) * 50 - 1;
+      }
     } else if (/\b(macbook|laptop|thinkpad|zenbook|notebook)\b/i.test(combinedAnalysisText)) {
-      determinedSubCategory = 'Laptops & Computers';
-      heuristicBasePrice = 54999;
-      fallbackImage = 'https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=600&auto=format&fit=crop&q=80';
+      determinedSubCategory = 'Laptops';
+      imagePoolKey = 'laptops';
+      // Deterministic dynamic price between ₹39,999 – ₹89,999
+      computedPseudoPrice = Math.round((39999 + normalizedSeed * (89999 - 39999)) / 500) * 500 - 10;
     } else if (/\b(smartwatch|apple\s*watch|galaxy\s*watch|fitness\s*band)\b/i.test(combinedAnalysisText)) {
       determinedSubCategory = 'Smartwatches';
-      heuristicBasePrice = 4999;
-      fallbackImage = 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&auto=format&fit=crop&q=80';
+      imagePoolKey = 'smartwatches';
+      // Deterministic dynamic price between ₹1,999 – ₹6,999
+      computedPseudoPrice = Math.round((1999 + normalizedSeed * (6999 - 1999)) / 50) * 50 - 1;
     } else if (/\b(serum|cleanser|cream|perfume|facewash|sunscreen|moisturizer|shampoo)\b/i.test(combinedAnalysisText)) {
       determinedSubCategory = 'Beauty & Personal Care';
-      heuristicBasePrice = 649;
-      fallbackImage = 'https://images.unsplash.com/photo-1556228720-195a672e8a03?w=600&auto=format&fit=crop&q=80';
+      imagePoolKey = 'beauty';
+      computedPseudoPrice = Math.round((349 + normalizedSeed * (999 - 349)) / 10) * 10 - 1;
     } else if (/\b(shoes|sneakers|nike|adidas|puma|tshirt|shirt|hoodie|jacket|jeans)\b/i.test(combinedAnalysisText)) {
-      determinedSubCategory = 'Fashion & Footwear';
-      heuristicBasePrice = 2499;
-      fallbackImage = 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=600&auto=format&fit=crop&q=80';
+      determinedSubCategory = 'Footwear & Fashion';
+      imagePoolKey = 'fashion';
+      computedPseudoPrice = Math.round((999 + normalizedSeed * (3999 - 999)) / 50) * 50 - 1;
+    } else {
+      determinedSubCategory = 'General Merchandise';
+      imagePoolKey = 'general';
+      computedPseudoPrice = Math.round((499 + normalizedSeed * (1499 - 499)) / 10) * 10 - 1;
     }
 
-    const finalBasePrice = fetchedPrice ? Math.round(fetchedPrice) : heuristicBasePrice;
+    // 4. Final Base Price Decision
+    // Priority 1: User explicitly entered price (e.g. ₹499)
+    // Priority 2: Scraped price from HTML
+    // Priority 3: Deterministic category-specific pseudo-random price
+    let finalBasePrice = computedPseudoPrice;
+    if (hasUserPrice) {
+      finalBasePrice = Math.round(enteredPrice);
+    } else if (fetchedPrice) {
+      finalBasePrice = Math.round(fetchedPrice);
+    }
+
     const finalMrp = Math.round(finalBasePrice * 1.25);
+
+    // Pick diverse category image using deterministic hash seed
+    const imageList = CATEGORY_IMAGES[imagePoolKey] || CATEGORY_IMAGES.general;
+    const fallbackImage = imageList[seed % imageList.length];
     const finalImage = fetchedImage || fallbackImage;
 
-    // Create 30-day simulated history
+    // 5. Generate realistic 30-day historical prices around finalBasePrice
     const history = [];
     const today = new Date();
     for (let i = 30; i >= 0; i--) {
       const d = new Date(today);
       d.setDate(d.getDate() - i);
-      const variance = Math.round((Math.sin(i / 3) * 0.08 + (Math.random() * 0.04 - 0.02)) * finalBasePrice);
+      // Realistic variance pattern around finalBasePrice
+      const dayVariation = (Math.sin((seed % 100 + i) / 2.5) * 0.08 + Math.cos((seed % 50 + i * 2) / 3.5) * 0.04);
+      const dayPrice = Math.max(Math.round(finalBasePrice * 0.88), Math.round(finalBasePrice * (1 + dayVariation)));
       history.push({
         date: d.toISOString().split('T')[0],
-        price: Math.max(Math.round(finalBasePrice * 0.85), finalBasePrice + variance),
-        note: i === 12 ? 'Flash Sale' : 'Standard Price',
+        price: dayPrice,
+        note: i === 12 ? 'Flash Sale' : (i === 22 ? 'Weekend Drop' : 'Standard Price'),
       });
+    }
+
+    // 6. Cross-Platform Comparison Generation
+    // Platform 1: Pasted platform (Amazon / Flipkart / etc.) with exact finalBasePrice
+    // Platform 2 & 3: Slightly higher/lower realistic prices (e.g. ₹479 and ₹529 if base is 499)
+    let p1Platform = detectedPlatform;
+    let p2Platform = detectedPlatform === 'Flipkart' ? 'Amazon' : 'Flipkart';
+    let p3Platform = 'Tata CliQ';
+
+    let p2Price = Math.max(49, Math.round(finalBasePrice * 0.96)); // e.g. ₹479 for 499
+    let p3Price = Math.max(49, Math.round(finalBasePrice * 1.06)); // e.g. ₹529 for 499
+
+    // If base price is high, create clean rounded numbers
+    if (finalBasePrice >= 5000) {
+      p2Price = Math.round(p2Price / 100) * 100 - 1;
+      p3Price = Math.round(p3Price / 100) * 100 - 1;
     }
 
     const dynamicProduct = {
@@ -522,19 +678,19 @@ const analyzeUrl = async (req, res, next) => {
       historicalPrices: history,
       platformListings: [
         {
-          platform: 'Amazon',
+          platform: p1Platform,
           basePrice: finalBasePrice,
-          deliveryFee: 0,
+          deliveryFee: finalBasePrice < 499 ? 40 : 0,
           freeDeliveryThreshold: 499,
           handlingFee: 0,
           sellerRating: 4.6,
-          sellerName: detectedPlatform === 'Amazon' ? 'Appario Retail Pvt Ltd' : 'Verified Merchant Hub',
+          sellerName: detectedPlatform === 'Amazon' ? 'Appario Retail Pvt Ltd' : 'SuperComNet Retail',
           returnPolicy: '7 Days Replacement',
           returnPolicyScore: 9,
           eta: 'Tomorrow by 2 PM',
           inStock: true,
           productUrl: canonicalUrl,
-          couponDetails: finalBasePrice > 1000 ? {
+          couponDetails: finalBasePrice > 800 ? {
             code: 'PICKSYSAVE',
             discountAmount: Math.min(500, Math.round(finalBasePrice * 0.08)),
             minSpend: Math.round(finalBasePrice * 0.7),
@@ -543,13 +699,13 @@ const analyzeUrl = async (req, res, next) => {
           } : null,
         },
         {
-          platform: 'Flipkart',
-          basePrice: Math.round(finalBasePrice * 0.98),
-          deliveryFee: finalBasePrice < 500 ? 40 : 0,
+          platform: p2Platform,
+          basePrice: p2Price,
+          deliveryFee: p2Price < 500 ? 40 : 0,
           freeDeliveryThreshold: 500,
           handlingFee: 0,
           sellerRating: 4.4,
-          sellerName: 'SuperComNet Retail',
+          sellerName: 'Cloudtail India',
           returnPolicy: '7 Days Replacement',
           returnPolicyScore: 8,
           eta: '2-3 Days',
@@ -558,8 +714,8 @@ const analyzeUrl = async (req, res, next) => {
           couponDetails: null,
         },
         {
-          platform: 'Tata CliQ',
-          basePrice: Math.round(finalBasePrice * 1.03),
+          platform: p3Platform,
+          basePrice: p3Price,
           deliveryFee: 0,
           freeDeliveryThreshold: 499,
           handlingFee: 0,
@@ -598,6 +754,8 @@ const analyzeUrl = async (req, res, next) => {
       detectedPlatform,
       canonicalUrl,
       keywords,
+      hasUserPrice,
+      userPrice: hasUserPrice ? enteredPrice : null,
       product: {
         ...savedProduct,
         decision,
