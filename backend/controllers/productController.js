@@ -2,6 +2,12 @@ const Product = require('../models/Product');
 const { getIsConnected } = require('../config/db');
 const inMemoryStore = require('../config/inMemoryStore');
 const { calculateDecisionMetrics, getPlatformSearchUrl } = require('../utils/decisionEngine');
+const {
+  searchRapidApi,
+  getProductOffers,
+  mapRapidProductToPicksy,
+  parseInrPrice,
+} = require('../utils/rapidApiService');
 
 // @desc    Get all products with filtering, search, sorting & dynamic decision engine data
 // @route   GET /api/products
@@ -524,7 +530,65 @@ const analyzeUrl = async (req, res, next) => {
       });
     }
 
-    // 3. Determine Category, SubCategory, and Image Pool
+    // 2.5: RapidAPI Real-Time Product Search Integration
+    // When analyzing a real pasted link, attempt live query to get authentic photo, prices & store offers
+    const searchQuery = (fetchedTitle || keywords || '').trim();
+    if (searchQuery && process.env.RAPIDAPI_KEY) {
+      try {
+        const rapidResults = await searchRapidApi(searchQuery, 3);
+        if (rapidResults && rapidResults.length > 0) {
+          const topResult = rapidResults[0];
+
+          // Fetch multi-store offers if available
+          let liveOffers = null;
+          if (topResult.product_id) {
+            try {
+              liveOffers = await getProductOffers(topResult.product_id);
+            } catch (offerErr) {
+              // Ignore offer fetch error; standard platform synthesis will take over
+            }
+          }
+
+          const mappedProduct = mapRapidProductToPicksy(topResult, {
+            canonicalUrl,
+            detectedPlatform,
+            userPrice: hasUserPrice ? enteredPrice : (fetchedPrice || null),
+            offers: liveOffers,
+          });
+
+          if (mappedProduct) {
+            let savedProduct = null;
+            if (getIsConnected()) {
+              savedProduct = await Product.create(mappedProduct);
+              savedProduct = savedProduct.toObject ? savedProduct.toObject() : savedProduct;
+            } else {
+              savedProduct = await inMemoryStore.products.create(mappedProduct);
+            }
+
+            const decision = calculateDecisionMetrics(savedProduct);
+
+            return res.json({
+              success: true,
+              isLiveApi: true,
+              detectedPlatform,
+              canonicalUrl,
+              keywords,
+              hasUserPrice,
+              userPrice: hasUserPrice ? enteredPrice : null,
+              product: {
+                ...savedProduct,
+                decision,
+                lowestPrice: decision?.cheapestPlatform?.netPayablePrice || savedProduct.mrp,
+              },
+            });
+          }
+        }
+      } catch (rapidErr) {
+        console.warn('[Picksy] RapidAPI analyze-url fallback triggered:', rapidErr.message);
+      }
+    }
+
+    // 3. Determine Category, SubCategory, and Image Pool (Safe Fallback Engine)
     const displayTitle = fetchedTitle
       ? fetchedTitle
       : keywords
@@ -766,9 +830,96 @@ const analyzeUrl = async (req, res, next) => {
   }
 };
 
+// @desc    Live Web Search across Indian e-commerce stores via RapidAPI Real-Time Product Search
+// @route   GET /api/products/live-search
+// @access  Public
+const searchLiveProducts = async (req, res, next) => {
+  try {
+    const query = (req.query.q || req.query.query || '').trim();
+    if (!query) {
+      return res.status(400).json({ success: false, message: 'Please provide a search query.' });
+    }
+
+    let liveProducts = [];
+
+    // Attempt RapidAPI lookup
+    try {
+      const apiResults = await searchRapidApi(query, 5);
+
+      if (apiResults && apiResults.length > 0) {
+        for (const item of apiResults) {
+          const mapped = mapRapidProductToPicksy(item);
+          if (mapped) {
+            let saved;
+            if (getIsConnected()) {
+              saved = await Product.create(mapped);
+              saved = saved.toObject ? saved.toObject() : saved;
+            } else {
+              saved = await inMemoryStore.products.create(mapped);
+            }
+            const decision = calculateDecisionMetrics(saved);
+            liveProducts.push({
+              ...saved,
+              decision,
+              lowestPrice: decision?.cheapestPlatform?.netPayablePrice || saved.mrp,
+            });
+          }
+        }
+      }
+    } catch (apiErr) {
+      console.warn('[Picksy] Live search API call failed:', apiErr.message);
+    }
+
+    // If live API returned results, return them
+    if (liveProducts.length > 0) {
+      return res.json({
+        success: true,
+        count: liveProducts.length,
+        products: liveProducts,
+        isLiveWeb: true,
+      });
+    }
+
+    // Safe Fallback: Search local catalog or return clean catalog matches
+    let fallback = [];
+    if (getIsConnected()) {
+      fallback = await Product.find({
+        $or: [
+          { title: { $regex: query, $options: 'i' } },
+          { brand: { $regex: query, $options: 'i' } },
+          { tags: { $regex: query, $options: 'i' } },
+        ],
+      }).lean();
+    } else {
+      fallback = await inMemoryStore.products.find({ search: query });
+    }
+
+    const enhancedFallback = fallback.map((p) => {
+      const decision = calculateDecisionMetrics(p);
+      return {
+        ...p,
+        decision,
+        lowestPrice: decision?.cheapestPlatform?.netPayablePrice || p.mrp,
+      };
+    });
+
+    return res.json({
+      success: true,
+      count: enhancedFallback.length,
+      products: enhancedFallback,
+      isLiveWeb: false,
+      isFallback: true,
+      message: enhancedFallback.length > 0 ? 'Showing matching catalog products.' : 'No items found matching your query.',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getProducts,
   getProductById,
   getSpotlightDeals,
   analyzeUrl,
+  searchLiveProducts,
 };

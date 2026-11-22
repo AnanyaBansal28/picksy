@@ -48,6 +48,7 @@ export const productService = {
   getById: (id) => api.get(`/products/${id}`),
   getSpotlightDeals: () => api.get('/products/spotlight/deals'),
   analyzeUrl: (data) => api.post('/products/analyze-url', data),
+  liveSearch: (query) => api.get('/products/live-search', { params: { q: query } }),
 };
 
 export const cartService = {

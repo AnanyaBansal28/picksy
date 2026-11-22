@@ -12,6 +12,7 @@ import {
   Link as LinkIcon,
   Loader2,
   AlertCircle,
+  Globe,
 } from 'lucide-react';
 import { productService } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -46,6 +47,10 @@ export const ExplorerPage = () => {
   const [urlError, setUrlError] = useState('');
   const [customPrice, setCustomPrice] = useState('');
 
+  // Live Web Search state
+  const [isLiveSearching, setIsLiveSearching] = useState(false);
+  const [isLiveWebMode, setIsLiveWebMode] = useState(false);
+
   // Price Alert Modal State
   const [alertProduct, setAlertProduct] = useState(null);
   const [isAlertOpen, setIsAlertOpen] = useState(false);
@@ -62,6 +67,7 @@ export const ExplorerPage = () => {
 
   const fetchProducts = async () => {
     setLoading(true);
+    setIsLiveWebMode(false);
     try {
       const params = {
         category: 'ecommerce',
@@ -92,6 +98,37 @@ export const ExplorerPage = () => {
     } else {
       fetchProducts();
     }
+  };
+
+  const handleLiveSearch = async (queryOverride) => {
+    const q = (queryOverride !== undefined ? queryOverride : search).trim();
+    if (!q) return;
+
+    setIsLiveSearching(true);
+    setUrlError('');
+    setLoading(true);
+
+    try {
+      const res = await productService.liveSearch(q);
+      if (res.data?.success && res.data.products?.length > 0) {
+        setProducts(res.data.products);
+        setIsLiveWebMode(true);
+      } else {
+        setUrlError('No live web deals found for this query.');
+      }
+    } catch (err) {
+      console.error('Failed to perform live web search:', err);
+      setUrlError(err.response?.data?.message || 'Failed to fetch live web deals.');
+    } finally {
+      setIsLiveSearching(false);
+      setLoading(false);
+    }
+  };
+
+  const handleResetToCatalog = () => {
+    setIsLiveWebMode(false);
+    setUrlError('');
+    fetchProducts();
   };
 
   const handleAnalyzeUrl = async () => {
@@ -156,7 +193,7 @@ export const ExplorerPage = () => {
           </div>
 
           {/* Unified Search & URL Analyzer Bar */}
-          <div className="w-full md:w-96">
+          <div className="w-full md:w-[450px]">
             <form onSubmit={handleSearchSubmit} className="relative">
               {isLinkInput ? (
                 <LinkIcon className="w-4 h-4 text-indigo-600 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -168,7 +205,9 @@ export const ExplorerPage = () => {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search product or paste Amazon/Flipkart link..."
-                className={`w-full pl-9 pr-24 py-2 bg-white border rounded-xl text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 shadow-2xs transition-all ${
+                className={`w-full pl-9 ${
+                  isLinkInput ? 'pr-44' : 'pr-36'
+                } py-2 bg-white border rounded-xl text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 shadow-2xs transition-all ${
                   isLinkInput
                     ? 'border-indigo-400 focus:ring-indigo-500/20 focus:border-indigo-600'
                     : 'border-slate-200 focus:ring-indigo-500/20 focus:border-indigo-500'
@@ -180,7 +219,7 @@ export const ExplorerPage = () => {
                     type="button"
                     onClick={() => {
                       setSearch('');
-                      fetchProducts();
+                      handleResetToCatalog();
                     }}
                     className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
                   >
@@ -197,7 +236,7 @@ export const ExplorerPage = () => {
                       value={customPrice}
                       onChange={(e) => setCustomPrice(e.target.value)}
                       placeholder="Price (opt)"
-                      className="w-18 sm:w-24 py-0.5 text-[11px] font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-none"
+                      className="w-18 sm:w-20 py-0.5 text-[11px] font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-none"
                       title="Optional: Current store price (e.g. 499)"
                     />
                   </div>
@@ -217,12 +256,28 @@ export const ExplorerPage = () => {
                     <span>Analyze</span>
                   </button>
                 ) : (
-                  <button
-                    type="submit"
-                    className="px-2.5 py-1 bg-slate-900 hover:bg-black text-white rounded-lg text-[11px] font-bold transition-all cursor-pointer shadow-2xs"
-                  >
-                    Search
-                  </button>
+                  <>
+                    <button
+                      type="submit"
+                      className="px-2 py-1 bg-slate-900 hover:bg-black text-white rounded-lg text-[11px] font-bold transition-all cursor-pointer shadow-2xs"
+                    >
+                      Search
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleLiveSearch(search)}
+                      disabled={isLiveSearching || !search.trim()}
+                      className="px-2 py-1 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 disabled:opacity-50 text-white rounded-lg text-[11px] font-black tracking-wide flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
+                      title="Search live web deals across India via RapidAPI"
+                    >
+                      {isLiveSearching ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Globe className="w-3 h-3 text-indigo-200" />
+                      )}
+                      <span>Live Deals</span>
+                    </button>
+                  </>
                 )}
               </div>
             </form>
@@ -323,6 +378,36 @@ export const ExplorerPage = () => {
         </div>
       </div>
 
+      {/* Live Web Deals Mode Banner */}
+      {isLiveWebMode && (
+        <div className="bg-gradient-to-r from-indigo-950 via-indigo-900 to-slate-900 text-white rounded-2xl p-4 sm:p-5 mb-8 shadow-md border border-indigo-700/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="w-11 h-11 rounded-xl bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center text-indigo-300 shrink-0">
+              <Globe className="w-5 h-5 animate-pulse" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] font-black uppercase tracking-wider bg-indigo-500/30 text-indigo-200 px-2.5 py-0.5 rounded-full border border-indigo-400/30">
+                  ⚡ Live Web Search Deals
+                </span>
+                <span className="text-xs text-indigo-300 font-medium">
+                  Real-time Indian marketplace comparison (Amazon, Flipkart, Croma, Tata CLiQ)
+                </span>
+              </div>
+              <h2 className="text-sm sm:text-base font-extrabold text-white mt-1">
+                Showing live verified offers for &ldquo;{search}&rdquo;
+              </h2>
+            </div>
+          </div>
+          <button
+            onClick={handleResetToCatalog}
+            className="px-4 py-2 bg-white text-indigo-900 hover:bg-indigo-50 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5 self-start sm:self-auto shrink-0"
+          >
+            <span>← Back to Catalog</span>
+          </button>
+        </div>
+      )}
+
       {/* Clean, Decluttered Product Grid */}
       {loading ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -336,25 +421,45 @@ export const ExplorerPage = () => {
           ))}
         </div>
       ) : products.length === 0 ? (
-        <div className="text-center py-16 bg-white rounded-2xl border border-slate-200">
-          <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto mb-3">
-            <Search className="w-6 h-6" />
+        <div className="text-center py-16 bg-white rounded-2xl border border-slate-200 p-6 sm:p-10">
+          <div className="w-14 h-14 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto mb-3">
+            <Search className="w-7 h-7" />
           </div>
-          <h3 className="text-base font-bold text-slate-800">No matching products found</h3>
-          <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-            Try adjusting your search terms or clearing the verdict filter.
+          <h3 className="text-base sm:text-lg font-bold text-slate-900">
+            {search ? `No catalog items found for "${search}"` : 'No matching products found'}
+          </h3>
+          <p className="text-xs sm:text-sm text-slate-500 mt-1 max-w-md mx-auto">
+            {search
+              ? 'Can’t find it in our local catalog? Compare real live offers across Indian stores (Amazon, Flipkart, Tata CLiQ, Croma) via live web search.'
+              : 'Try adjusting your search terms or clearing the verdict filter.'}
           </p>
-          <button
-            onClick={() => {
-              setSearch('');
-              setSelectedCategory('All');
-              setDealFilter('ALL');
-              fetchProducts();
-            }}
-            className="mt-4 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl text-xs font-bold hover:bg-indigo-100 cursor-pointer"
-          >
-            Reset Filters
-          </button>
+          <div className="mt-5 flex items-center justify-center gap-3 flex-wrap">
+            {search.trim() && (
+              <button
+                onClick={() => handleLiveSearch(search)}
+                disabled={isLiveSearching}
+                className="px-4 py-2.5 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-2 cursor-pointer"
+              >
+                {isLiveSearching ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Globe className="w-4 h-4 text-indigo-200" />
+                )}
+                <span>Search Live Web Deals for &ldquo;{search}&rdquo;</span>
+              </button>
+            )}
+            <button
+              onClick={() => {
+                setSearch('');
+                setSelectedCategory('All');
+                setDealFilter('ALL');
+                handleResetToCatalog();
+              }}
+              className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer"
+            >
+              Reset Filters
+            </button>
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -404,13 +509,23 @@ export const ExplorerPage = () => {
                       className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-500"
                       loading="lazy"
                     />
-                    <div className="absolute top-2.5 left-2.5">
+                    <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
                       <VerdictBadge verdict={verdict} size="sm" />
+                      {(isLiveWebMode || product.isLiveWeb) && (
+                        <span className="text-[9px] font-black uppercase tracking-wider bg-slate-900/80 backdrop-blur-xs text-white px-2 py-0.5 rounded-md border border-slate-700 shadow-2xs">
+                          🌐 Live Web
+                        </span>
+                      )}
                     </div>
                   </Link>
 
-                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                    {product.brand} • {product.subCategory}
+                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center justify-between">
+                    <span>{product.brand} • {product.subCategory}</span>
+                    {product.platformListings && (
+                      <span className="text-slate-400 font-semibold lowercase">
+                        {product.platformListings.length} stores
+                      </span>
+                    )}
                   </div>
 
                   <Link to={`/product/${pId}`}>
