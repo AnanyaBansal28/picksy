@@ -1,5 +1,76 @@
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 const { sampleProducts } = require('../seed/seedData');
 const bcrypt = require('bcryptjs');
+
+// Local db.json storage path: writes to /tmp/db.json on Vercel (since Vercel's main filesystem is read-only)
+const DB_STORAGE_PATH = process.env.VERCEL
+  ? '/tmp/db.json'
+  : path.join(__dirname, '../data/db.json');
+
+/**
+ * Persist current store state to db.json fallback (using /tmp/db.json on Vercel)
+ */
+function saveDbFallback(data) {
+  try {
+    const targetPath = DB_STORAGE_PATH;
+    const dir = path.dirname(targetPath);
+    if (!fs.existsSync(dir)) {
+      try {
+        fs.mkdirSync(dir, { recursive: true });
+      } catch (mkdirErr) {
+        // Fallback for Windows test environments where C:\tmp doesn't exist
+        if (process.platform === 'win32') {
+          const winPath = path.join(os.tmpdir(), 'db.json');
+          const payload = data || {
+            products: memoryProducts,
+            users: memoryUsers,
+            alerts: memoryAlerts,
+            savedAt: new Date().toISOString(),
+          };
+          fs.writeFileSync(winPath, JSON.stringify(payload, null, 2), 'utf-8');
+          return true;
+        }
+        throw mkdirErr;
+      }
+    }
+    const payload = data || {
+      products: memoryProducts,
+      users: memoryUsers,
+      alerts: memoryAlerts,
+      savedAt: new Date().toISOString(),
+    };
+    fs.writeFileSync(targetPath, JSON.stringify(payload, null, 2), 'utf-8');
+    return true;
+  } catch (err) {
+    console.warn('[Picksy Storage] Note: db.json fallback write bypassed:', err.message);
+    return false;
+  }
+}
+
+/**
+ * Load state from db.json if available
+ */
+function loadDbFallback() {
+  try {
+    const targetPath = DB_STORAGE_PATH;
+    if (fs.existsSync(targetPath)) {
+      const raw = fs.readFileSync(targetPath, 'utf-8');
+      return JSON.parse(raw);
+    }
+    if (process.platform === 'win32') {
+      const winPath = path.join(os.tmpdir(), 'db.json');
+      if (fs.existsSync(winPath)) {
+        const raw = fs.readFileSync(winPath, 'utf-8');
+        return JSON.parse(raw);
+      }
+    }
+  } catch (err) {
+    console.warn('[Picksy Storage] Note: db.json fallback read bypassed:', err.message);
+  }
+  return null;
+}
 
 function matchesSearch(product, searchQuery) {
   if (!searchQuery || !searchQuery.trim()) return true;
@@ -120,6 +191,7 @@ const inMemoryStore = {
         createdAt: new Date().toISOString(),
       };
       memoryProducts.push(newProduct);
+      saveDbFallback();
       return newProduct;
     },
     countDocuments: async () => memoryProducts.length,
@@ -131,6 +203,7 @@ const inMemoryStore = {
           id: `prod_${Date.now()}_${idx}`,
         });
       });
+      saveDbFallback();
       return items;
     },
   },
@@ -241,14 +314,19 @@ const inMemoryStore = {
         createdAt: new Date().toISOString(),
       };
       memoryAlerts.push(newAlert);
+      saveDbFallback();
       return newAlert;
     },
     delete: async (alertId, userId) => {
       const initialLen = memoryAlerts.length;
       memoryAlerts = memoryAlerts.filter((a) => !(a._id === alertId && a.userId === userId));
+      saveDbFallback();
       return memoryAlerts.length < initialLen;
     },
   },
+  DB_STORAGE_PATH,
+  saveDbFallback,
+  loadDbFallback,
 };
 
 module.exports = inMemoryStore;

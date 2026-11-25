@@ -68,16 +68,24 @@ app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;
 
-const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`
+// Only call app.listen when not in Vercel Serverless environment and run directly
+const isVercel = process.env.VERCEL === '1' || process.env.VERCEL === 'true';
+
+if (!isVercel && require.main === module) {
+  const server = app.listen(PORT, '0.0.0.0', () => {
+    console.log(`
   ==============================================================
   💎 PICKSY — "Pick Smartly, Shop Wisely."
   🚀 Server running on http://localhost:${PORT}
   📡 Health check: http://localhost:${PORT}/api/health
   ==============================================================
-  `);
-  // Connect DB after server starts listening
+    `);
+    // Connect DB after server starts listening
+    connectDB().catch((err) => console.warn('DB note:', err.message));
+  });
+} else {
+  // Connect DB on serverless invocation / module import
   connectDB().catch((err) => console.warn('DB note:', err.message));
-});
+}
 
 module.exports = app;

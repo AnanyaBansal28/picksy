@@ -51,6 +51,10 @@ export const productService = {
   liveSearch: (query) => api.get('/products/live-search', { params: { q: query } }),
 };
 
+export const groceryService = {
+  analyzeItem: (data) => api.post('/grocery/analyze-item', data),
+};
+
 export const cartService = {
   optimize: (items) => api.post('/cart/optimize', { items }),
 };

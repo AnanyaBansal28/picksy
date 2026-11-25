@@ -19,8 +19,12 @@ import {
   ArrowRightLeft,
   Store,
   Wallet,
+  ExternalLink,
+  Loader2,
+  X,
+  Link2,
 } from 'lucide-react';
-import { productService } from '../services/api';
+import { productService, groceryService } from '../services/api';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
 
@@ -40,7 +44,38 @@ export const QuickCommercePage = () => {
   const [toastMessage, setToastMessage] = useState(null);
   const [lockedSavings, setLockedSavings] = useState(false);
 
+  // Grocery URL & Live Item Search state
+  const [groceryInput, setGroceryInput] = useState('');
+  const [analyzingGrocery, setAnalyzingGrocery] = useState(false);
+  const [analyzedProduct, setAnalyzedProduct] = useState(null);
+  const [groceryError, setGroceryError] = useState(null);
+
   const { recordSavings } = useAuth();
+
+  const handleAnalyzeGrocery = async (e, directQuery = null) => {
+    if (e && e.preventDefault) e.preventDefault();
+    const queryToUse = (directQuery || groceryInput).trim();
+    if (!queryToUse) return;
+
+    if (directQuery) setGroceryInput(directQuery);
+    setAnalyzingGrocery(true);
+    setGroceryError(null);
+    try {
+      const res = await groceryService.analyzeItem({ query: queryToUse });
+      if (res.data.success && res.data.product) {
+        const item = res.data.product;
+        setAnalyzedProduct(item);
+        setProducts((prev) => [item, ...prev.filter((p) => (p._id || p.id) !== (item._id || item.id))]);
+        setToastMessage(`✨ Live 10-Min Rates Found for "${item.title.split('(')[0]}"!`);
+        setTimeout(() => setToastMessage(null), 3500);
+      }
+    } catch (err) {
+      console.error('Failed to analyze grocery item:', err);
+      setGroceryError(err.response?.data?.message || 'Could not fetch grocery rates. Please try again.');
+    } finally {
+      setAnalyzingGrocery(false);
+    }
+  };
 
   const handleLockSavings = async (amount) => {
     const val = Number(amount) || 45;
@@ -153,6 +188,243 @@ export const QuickCommercePage = () => {
             </button>
           </div>
         </div>
+      </div>
+
+      {/* 10-Min Live Quick-Commerce Paste & Search Bar */}
+      <div className="mb-8 bg-gradient-to-br from-amber-500/10 via-white to-orange-500/10 rounded-3xl border border-amber-200/80 p-5 sm:p-6 shadow-soft">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 mb-3">
+          <div className="flex items-center gap-2">
+            <span className="p-1.5 rounded-xl bg-amber-500 text-slate-950 font-black">
+              <Zap className="w-4 h-4" />
+            </span>
+            <div>
+              <h2 className="text-base font-extrabold text-slate-900 tracking-tight">
+                Paste Blinkit / Zepto / BigBasket Link or Type Any Grocery Item
+              </h2>
+              <p className="text-xs text-slate-500">
+                Picksy scans real-time rates across Blinkit, Zepto & Swiggy Instamart and reveals the cheapest 10-min store.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <form onSubmit={handleAnalyzeGrocery} className="flex flex-col sm:flex-row gap-2.5">
+          <div className="relative flex-1">
+            <Link2 className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={groceryInput}
+              onChange={(e) => setGroceryInput(e.target.value)}
+              placeholder="Paste Blinkit / Zepto / BigBasket Link or Type Grocery Item (e.g. Amul Gold Milk 500ml)..."
+              className="w-full pl-10 pr-4 py-3 bg-white border border-slate-300 rounded-2xl text-xs sm:text-sm font-medium text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500 shadow-xs"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={analyzingGrocery || !groceryInput.trim()}
+            className="px-5 py-3 rounded-2xl bg-slate-950 hover:bg-slate-900 disabled:opacity-60 text-white font-extrabold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 shadow-sm flex-shrink-0 cursor-pointer"
+          >
+            {analyzingGrocery ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+                <span>Checking 10-Min Stores...</span>
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-4 h-4 text-amber-400" />
+                <span>Compare Quick-Commerce Rates</span>
+              </>
+            )}
+          </button>
+        </form>
+
+        {groceryError && (
+          <div className="mt-3 text-xs text-rose-600 font-semibold flex items-center gap-1.5">
+            <AlertTriangle className="w-3.5 h-3.5" />
+            <span>{groceryError}</span>
+          </div>
+        )}
+
+        {/* Quick Suggestion Pills */}
+        <div className="flex items-center gap-2 mt-3.5 flex-wrap">
+          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Try quick item:</span>
+          {[
+            'Amul Gold Milk 500ml',
+            'Amul Butter 500g',
+            'Fortune Sunflower Oil 1L',
+            'Nutella Hazelnut Spread 350g',
+            'Cetaphil Gentle Skin Cleanser',
+          ].map((suggestion) => (
+            <button
+              key={suggestion}
+              type="button"
+              onClick={() => handleAnalyzeGrocery(null, suggestion)}
+              className="text-[11px] px-2.5 py-1 rounded-lg bg-white/80 hover:bg-white border border-slate-200 text-slate-700 hover:text-slate-950 font-medium transition-all shadow-2xs hover:border-amber-300"
+            >
+              {suggestion}
+            </button>
+          ))}
+        </div>
+
+        {/* Analyzed Item Result Card */}
+        {analyzedProduct && (
+          <div className="mt-5 p-4 sm:p-5 bg-white rounded-2xl border border-amber-300/80 shadow-md relative animate-in fade-in slide-in-from-top-2 duration-300">
+            <button
+              onClick={() => setAnalyzedProduct(null)}
+              className="absolute top-3 right-3 text-slate-400 hover:text-slate-700 p-1 rounded-lg hover:bg-slate-100 transition-colors"
+              title="Dismiss"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="flex flex-col md:flex-row gap-5 items-start">
+              {/* Product Info */}
+              <div className="flex items-start gap-4 md:w-1/3 flex-shrink-0">
+                <div className="w-20 h-20 rounded-2xl bg-slate-50 border border-slate-200 overflow-hidden flex items-center justify-center p-1.5 flex-shrink-0">
+                  <img
+                    src={analyzedProduct.image}
+                    alt={analyzedProduct.title}
+                    className="w-full h-full object-contain"
+                  />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                      Live Rates Verified
+                    </span>
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                      {analyzedProduct.subCategory}
+                    </span>
+                  </div>
+                  <h3 className="text-sm font-extrabold text-slate-950 line-clamp-2">
+                    {analyzedProduct.title}
+                  </h3>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-xs font-semibold text-slate-500">
+                      Brand: <strong className="text-slate-800">{analyzedProduct.brand}</strong>
+                    </span>
+                    <span className="text-slate-300">•</span>
+                    <span className="text-xs font-semibold text-slate-500">
+                      Unit: <strong className="text-slate-800">{analyzedProduct.unit}</strong>
+                    </span>
+                    {analyzedProduct.mrp && analyzedProduct.mrp > (analyzedProduct.lowestPrice || 0) && (
+                      <>
+                        <span className="text-slate-300">•</span>
+                        <span className="text-xs text-slate-400 line-through">
+                          MRP ₹{analyzedProduct.mrp}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* 3-Store Side-by-Side Comparison Grid */}
+              <div className="w-full md:flex-1 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {analyzedProduct.platformListings?.map((listing) => {
+                  const totalNet = listing.basePrice + listing.deliveryFee + listing.handlingFee;
+                  const minNet = Math.min(...analyzedProduct.platformListings.map((l) => l.basePrice + l.deliveryFee + l.handlingFee));
+                  const isCheapestNet = totalNet === minNet;
+                  const isFastest = listing.platform === 'Zepto';
+
+                  const badgeColors = {
+                    Blinkit: 'border-yellow-200 bg-yellow-50/50 text-yellow-950',
+                    Zepto: 'border-purple-200 bg-purple-50/50 text-purple-950',
+                    Instamart: 'border-orange-200 bg-orange-50/50 text-orange-950',
+                  };
+
+                  return (
+                    <div
+                      key={listing.platform}
+                      className={`p-3 rounded-2xl border transition-all flex flex-col justify-between ${
+                        isCheapestNet
+                          ? 'border-emerald-400 bg-emerald-50/30 ring-1 ring-emerald-300'
+                          : 'border-slate-200 bg-slate-50/50'
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className={`text-[11px] font-black px-2 py-0.5 rounded-lg border ${badgeColors[listing.platform] || 'bg-slate-100 text-slate-800'}`}>
+                            {listing.platform}
+                          </span>
+                          <span className="text-[10px] font-bold text-slate-500 flex items-center gap-1">
+                            <Clock className="w-3 h-3 text-slate-400" />
+                            {listing.eta || '10 Mins'}
+                          </span>
+                        </div>
+
+                        {/* Price Breakdown */}
+                        <div className="space-y-1 my-2 text-xs">
+                          <div className="flex justify-between items-center text-slate-600">
+                            <span>Item Price:</span>
+                            <span className="font-extrabold text-slate-900">₹{listing.basePrice}</span>
+                          </div>
+                          <div className="flex justify-between items-center text-[11px] text-slate-500">
+                            <span>Delivery:</span>
+                            <span>{listing.deliveryFee === 0 ? <strong className="text-emerald-600 font-bold">FREE</strong> : `₹${listing.deliveryFee}`}</span>
+                          </div>
+                          <div className="flex justify-between items-center text-[11px] text-slate-500">
+                            <span>Handling:</span>
+                            <span>₹{listing.handlingFee}</span>
+                          </div>
+                          <div className="pt-1.5 border-t border-slate-200/80 flex justify-between items-center">
+                            <span className="text-xs font-bold text-slate-900">Total Net:</span>
+                            <span className="text-sm font-black text-slate-950">₹{totalNet}</span>
+                          </div>
+                        </div>
+
+                        {/* Badges */}
+                        <div className="flex items-center gap-1 my-1.5 flex-wrap">
+                          {isCheapestNet && (
+                            <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-600 text-white">
+                              ★ Cheapest Store
+                            </span>
+                          )}
+                          {isFastest && (
+                            <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-purple-600 text-white">
+                              ⚡ 9 Mins ETA
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5 mt-2">
+                        {/* Outbound Link */}
+                        {listing.productUrl && (
+                          <a
+                            href={listing.productUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="w-full text-center py-1 text-[11px] font-bold text-slate-600 hover:text-slate-950 flex items-center justify-center gap-1 transition-colors"
+                          >
+                            <span>Open in {listing.platform}</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        )}
+
+                        {/* Add to Smart Cart */}
+                        <button
+                          type="button"
+                          onClick={() => handleAddPlatform(analyzedProduct, listing.platform)}
+                          className={`w-full py-2 px-3 rounded-xl text-xs font-extrabold transition-all flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer ${
+                            isCheapestNet
+                              ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                              : 'bg-slate-900 hover:bg-slate-800 text-white'
+                          }`}
+                        >
+                          <ShoppingBag className="w-3.5 h-3.5" />
+                          <span>Add to Smart Cart</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Split-Screen Main Layout */}
