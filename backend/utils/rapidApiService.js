@@ -73,6 +73,126 @@ const isAuthenticIndianStore = (product) => {
 };
 
 /**
+ * Follow HTTP redirects for short links (e.g. amzn.in, amzn.to, dl.flipkart.com, fkrt.it)
+ * to expand them into full canonical URLs before slug extraction.
+ */
+const resolveShortLink = async (urlStr) => {
+  if (!urlStr || typeof urlStr !== 'string') return urlStr;
+  try {
+    const raw = urlStr.trim();
+    const parsed = new URL(raw.startsWith('http') ? raw : `https://${raw}`);
+    const host = parsed.hostname.toLowerCase();
+    const isShortHost = ['amzn.in', 'amzn.to', 'dl.flipkart.com', 'fkrt.it', 'tinyurl.com', 'bit.ly'].some((h) =>
+      host.includes(h)
+    );
+
+    if (isShortHost) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      try {
+        const res = await fetch(parsed.toString(), {
+          method: 'GET',
+          redirect: 'follow',
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          },
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+        if (res.url && res.url !== parsed.toString()) {
+          console.log(`[Short-Link] Successfully expanded ${raw} -> ${res.url}`);
+          return res.url;
+        }
+      } catch (fetchErr) {
+        clearTimeout(timeoutId);
+      }
+    }
+  } catch (err) {}
+  return urlStr;
+};
+
+/**
+ * Bulletproof Amazon & Flipkart URL Slug Extractor:
+ * - Amazon: Grabs the path segment immediately preceding /dp/ or /gp/product/
+ * - Flipkart: Grabs the path segment immediately preceding /p/
+ * - Strips noise tokens (ref, sr, dp, gp, product) and decodes URI components
+ * - Separates attached numbers and dimension units (e.g. toy20cm -> toy 20 cm)
+ */
+const extractProductQueryFromUrl = (rawUrl) => {
+  if (!rawUrl || typeof rawUrl !== 'string') return '';
+  try {
+    const urlStr = rawUrl.trim();
+    const urlObj = new URL(urlStr.startsWith('http') ? urlStr : `https://${urlStr}`);
+    const hostname = urlObj.hostname.toLowerCase();
+    const pathname = urlObj.pathname;
+    const segments = pathname.split('/').filter(Boolean);
+
+    let slug = '';
+
+    // 1. Amazon: Segment immediately preceding /dp/ or /gp/product/
+    if (hostname.includes('amazon')) {
+      const dpIdx = segments.findIndex((s) => s.toLowerCase() === 'dp');
+      if (dpIdx > 0) {
+        slug = segments[dpIdx - 1];
+      } else {
+        const gpIdx = segments.findIndex((s) => s.toLowerCase() === 'product' || s.toLowerCase() === 'gp');
+        if (gpIdx > 0) {
+          if (segments[gpIdx].toLowerCase() === 'product' && segments[gpIdx - 1].toLowerCase() === 'gp' && gpIdx > 1) {
+            slug = segments[gpIdx - 2];
+          } else if (segments[gpIdx - 1].toLowerCase() !== 'gp') {
+            slug = segments[gpIdx - 1];
+          }
+        }
+      }
+    }
+    // 2. Flipkart: Segment immediately preceding /p/
+    else if (hostname.includes('flipkart')) {
+      const pIdx = segments.findIndex((s) => s.toLowerCase() === 'p');
+      if (pIdx > 0) {
+        slug = segments[pIdx - 1];
+      }
+    }
+    // 3. Myntra / Tata CLiQ / Generic
+    else if (hostname.includes('myntra') || hostname.includes('tatacliq')) {
+      if (segments.length > 0) {
+        slug = segments[segments.length - 1];
+      }
+    }
+
+    // Fallback if specific pattern did not catch it
+    if (!slug) {
+      for (const seg of segments) {
+        if (
+          seg.length > 3 &&
+          !['dp', 'p', 'gp', 'product', 'buy', 'item', 'itm', 'pd', 'ref', 's', 'd'].includes(seg.toLowerCase()) &&
+          !/^[A-Z0-9]{10}$/i.test(seg)
+        ) {
+          slug = seg;
+          break;
+        }
+      }
+    }
+
+    if (!slug && segments.length > 0) {
+      slug = segments[0];
+    }
+
+    // Clean noise tokens and format
+    let clean = decodeURIComponent(slug || '');
+    clean = clean.replace(/\b(ref|sr|dp|gp|product)\b/gi, ' ');
+    clean = clean.replace(/([a-zA-Z]+)(\d+)/g, '$1 $2');
+    clean = clean.replace(/(\d+)([a-zA-Z]+)/g, '$1 $2');
+    clean = clean.replace(/[-_+/.]/g, ' ');
+    clean = clean.replace(/\s+/g, ' ').trim();
+
+    return clean;
+  } catch (err) {
+    return '';
+  }
+};
+
+/**
  * Clean URL slug into human-readable product title keywords:
  * e.g. "SCOOBA-Fabric-Piggy-toy20cm-Height" -> "SCOOBA Fabric Piggy toy 20 cm Height"
  */
@@ -80,28 +200,27 @@ const cleanProductSlug = (rawSlug) => {
   if (!rawSlug) return '';
   let str = decodeURIComponent(rawSlug);
 
-  // 1. Separate camelCase words: e.g. "ColorFit" -> "Color Fit", "PiggyToy" -> "Piggy Toy"
-  str = str.replace(/([a-z]{2,})([A-Z][a-z]+)/g, '$1 $2');
-
-  // 2. Separate attached letters and numbers: e.g. "toy20cm" -> "toy 20 cm", "iPhone15" -> "iPhone 15"
+  // 1. Separate attached letters and numbers: e.g. "toy20cm" -> "toy 20 cm", "iPhone15" -> "iPhone 15"
   str = str.replace(/([a-zA-Z]+)(\d+)/g, '$1 $2');
   str = str.replace(/(\d+)([a-zA-Z]+)/g, '$1 $2');
 
-  // 3. Replace delimiters (-, _, +, /, .) with spaces
+  // 2. Replace delimiters (-, _, +, /, .) with spaces
   str = str.replace(/[-_+/.]/g, ' ');
 
-  // 4. Restore common brand spellings
+  // 3. Restore common brand spellings
   str = str.replace(/\bbo At\b/gi, 'boAt');
 
-  // 5. Clean whitespace
+  // 4. Clean whitespace
   return str.replace(/\s+/g, ' ').trim();
 };
 
 /**
  * Pick the best matching product from RapidAPI results:
  * - Filters out inflated import resellers (desertcart, ubuy, ebay) when Indian platforms are available
+ * - Enforces mandatory keyword overlap against the extracted query
+ * - Disqualifies cross-category mismatches (e.g. never match earbuds when query is a clothing/suit URL)
  * - Prefers results matching the target platform (e.g. Amazon for amazon.in links)
- * - Scores keyword overlap with special weight on brand and dimensions/specs
+ * - Returns NULL if no candidate actually matches the user's query
  */
 const pickBestMatchingProduct = (products, { detectedPlatform = 'Amazon', cleanSlug = '' } = {}) => {
   if (!Array.isArray(products) || products.length === 0) return null;
@@ -114,48 +233,76 @@ const pickBestMatchingProduct = (products, { detectedPlatform = 'Amazon', cleanS
   const slugWords = cleanSlug
     .toLowerCase()
     .split(/\s+/)
-    .filter((w) => w.length > 1 && !['the', 'and', 'with', 'for', 'in', 'height', 'of', 'to'].includes(w));
+    .filter((w) => w.length > 1 && !['the', 'and', 'with', 'for', 'in', 'height', 'of', 'to', 'set'].includes(w));
 
   const brandWord = slugWords[0] || '';
   const numbersInSlug = cleanSlug.match(/\d+(?:\s*[a-zA-Z]+)?/g) || [];
+
+  // Category intent checks to prevent cross-category hijacking
+  const queryIsClothing = /\b(suit|suits|kurta|kurtas|kurti|kurtis|saree|sarees|shawl|shawls|dupatta|rayon|viscose|printed|fabric|dress|dresses|clothing|apparel|ethnic|gown|lehenga|anarkali|salwar|palazzo|women|womens|men|mens|shirt|tshirt|jeans|hoodie|jacket|trousers|top|pant|pants)\b/i.test(
+    cleanSlug
+  );
+  const queryIsAudio = /\b(earbuds|earbud|earphone|earphones|headphone|headphones|buds|airpods|neckband|audio)\b/i.test(
+    cleanSlug
+  );
 
   const scored = candidatePool.map((product) => {
     let score = 0;
     const titleLower = String(product.product_title || product.title || '').toLowerCase();
     const storeLower = String(product.store_name || product.offer?.store_name || '').toLowerCase();
 
-    // 1. Direct platform match with pasted link (highest priority)
-    if (targetPlatformLower.includes('amazon') && storeLower.includes('amazon')) {
-      score += 100;
-    } else if (targetPlatformLower.includes('flipkart') && storeLower.includes('flipkart')) {
-      score += 100;
-    } else if (storeLower.includes(targetPlatformLower)) {
-      score += 80;
-    }
-
-    // 2. Authentic Indian platform bonus
-    if (isAuthenticIndianStore(product)) {
-      score += 40;
-    }
-
-    // 3. Severe penalty if an inflated reseller slips through
-    if (isInflatedReseller(product)) {
-      score -= 150;
-    }
-
-    // 4. Brand match (first distinctive word of the slug, e.g. "SCOOBA", "Noise", "boAt")
-    if (brandWord && (titleLower.includes(brandWord) || titleLower.startsWith(brandWord))) {
-      score += 60;
-    }
-
-    // 5. Keyword overlap
+    // 1. Mandatory keyword overlap
+    let matchedKeywordsCount = 0;
     for (const word of slugWords) {
       if (titleLower.includes(word)) {
-        score += 12;
+        matchedKeywordsCount++;
+        score += 20;
       }
     }
 
-    // 6. Number / Dimension match (e.g. 20 cm, 128 gb, 450)
+    // Reject candidates with 0 keyword overlap
+    if (matchedKeywordsCount === 0) {
+      return { product, score: -999 };
+    }
+
+    // 2. Reject cross-category mismatches (e.g. Earbuds for Clothing)
+    const candidateIsAudioOrPhone = /\b(earbuds|earbud|earphone|earphones|headphone|headphones|buds|airpods|neckband|phone|smartphone|mobile|galaxy\s*s\d|iphone)\b/i.test(
+      titleLower
+    );
+    if (queryIsClothing && candidateIsAudioOrPhone) {
+      return { product, score: -999 };
+    }
+
+    const candidateIsClothing = /\b(suit|kurta|kurti|saree|shawl|dupatta|dress|fabric|ethnic)\b/i.test(titleLower);
+    if (queryIsAudio && candidateIsClothing) {
+      return { product, score: -999 };
+    }
+
+    // 3. Direct platform match with pasted link
+    if (targetPlatformLower.includes('amazon') && storeLower.includes('amazon')) {
+      score += 60;
+    } else if (targetPlatformLower.includes('flipkart') && storeLower.includes('flipkart')) {
+      score += 60;
+    } else if (storeLower.includes(targetPlatformLower)) {
+      score += 40;
+    }
+
+    // 4. Authentic Indian platform bonus
+    if (isAuthenticIndianStore(product)) {
+      score += 30;
+    }
+
+    // 5. Severe penalty if an inflated reseller slips through
+    if (isInflatedReseller(product)) {
+      score -= 200;
+    }
+
+    // 6. Brand match (first word of slug, e.g. "GoSriKi", "SCOOBA", "Noise", "boAt")
+    if (brandWord && (titleLower.includes(brandWord) || titleLower.startsWith(brandWord))) {
+      score += 80;
+    }
+
+    // 7. Number / Dimension match (e.g. 20 cm, 128 gb, 450)
     for (const num of numbersInSlug) {
       const cleanNum = num.replace(/\s+/g, '').toLowerCase();
       if (titleLower.replace(/\s+/g, '').includes(cleanNum)) {
@@ -163,7 +310,7 @@ const pickBestMatchingProduct = (products, { detectedPlatform = 'Amazon', cleanS
       }
     }
 
-    // 7. Product photo presence
+    // 8. Product photo presence
     if (product.product_photos && product.product_photos.length > 0) {
       score += 10;
     }
@@ -172,7 +319,11 @@ const pickBestMatchingProduct = (products, { detectedPlatform = 'Amazon', cleanS
   });
 
   scored.sort((a, b) => b.score - a.score);
-  return scored[0]?.product || candidatePool[0] || products[0];
+  const bestCandidate = scored[0];
+  if (!bestCandidate || bestCandidate.score <= 0) {
+    return null;
+  }
+  return bestCandidate.product;
 };
 
 const CATEGORY_IMAGES = {
@@ -206,7 +357,15 @@ const CATEGORY_IMAGES = {
     'https://images.unsplash.com/photo-1602143407151-7111542de6e8?w=600&auto=format&fit=crop&q=80',
     'https://images.unsplash.com/photo-1544816155-12df9643f363?w=600&auto=format&fit=crop&q=80',
   ],
+  clothing: [
+    'https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=600&auto=format&fit=crop&q=80',
+    'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=600&auto=format&fit=crop&q=80',
+    'https://images.unsplash.com/photo-1617627143750-d86bc21e42bb?w=600&auto=format&fit=crop&q=80',
+    'https://images.unsplash.com/photo-1572804013309-59a88b7e92f1?w=600&auto=format&fit=crop&q=80',
+  ],
   fashion: [
+    'https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=600&auto=format&fit=crop&q=80',
+    'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=600&auto=format&fit=crop&q=80',
     'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=600&auto=format&fit=crop&q=80',
     'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=600&auto=format&fit=crop&q=80',
   ],
@@ -262,7 +421,11 @@ const detectSubCategory = (title = '', description = '') => {
   if (/\b(smartwatch|apple\s*watch|fitness\s*band|galaxy\s*watch)\b/i.test(text)) {
     return 'Smartwatches';
   }
-  if (/\b(shoes|sneakers|shirt|tshirt|jeans|hoodie|jacket|dress|kurti|trousers)\b/i.test(text)) {
+  if (
+    /\b(suit|suits|kurta|kurtas|kurti|kurtis|saree|sarees|shawl|shawls|dupatta|rayon|viscose|printed|fabric|dress|dresses|clothing|apparel|ethnic|gown|lehenga|anarkali|salwar|palazzo|women|womens|men|mens|shoes|sneakers|shirt|tshirt|jeans|hoodie|jacket|trousers|top|pant|pants)\b/i.test(
+      text
+    )
+  ) {
     return 'Footwear & Fashion';
   }
   if (/\b(tv|television|qled|oled|projector)\b/i.test(text)) {
@@ -660,6 +823,8 @@ module.exports = {
   detectBrand,
   generateHistoricalPrices,
   cleanProductSlug,
+  extractProductQueryFromUrl,
+  resolveShortLink,
   pickBestMatchingProduct,
   isInflatedReseller,
   isAuthenticIndianStore,

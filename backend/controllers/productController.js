@@ -10,6 +10,8 @@ const {
   cleanProductSlug,
   pickBestMatchingProduct,
   isInflatedReseller,
+  resolveShortLink,
+  extractProductQueryFromUrl,
 } = require('../utils/rapidApiService');
 
 // @desc    Get all products with filtering, search, sorting & dynamic decision engine data
@@ -234,6 +236,12 @@ const CATEGORY_IMAGES = {
     'https://images.unsplash.com/photo-1556228720-195a672e8a03?w=600&auto=format&fit=crop&q=80',
     'https://images.unsplash.com/photo-1608248597359-009f456e72b4?w=600&auto=format&fit=crop&q=80',
   ],
+  clothing: [
+    'https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=600&auto=format&fit=crop&q=80',
+    'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=600&auto=format&fit=crop&q=80',
+    'https://images.unsplash.com/photo-1617627143750-d86bc21e42bb?w=600&auto=format&fit=crop&q=80',
+    'https://images.unsplash.com/photo-1572804013309-59a88b7e92f1?w=600&auto=format&fit=crop&q=80',
+  ],
   fashion: [
     'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=600&auto=format&fit=crop&q=80',
     'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=600&auto=format&fit=crop&q=80',
@@ -298,8 +306,14 @@ const analyzeUrl = async (req, res, next) => {
     const enteredPrice = Number(rawEnteredPrice);
     const hasUserPrice = !isNaN(enteredPrice) && enteredPrice > 0;
 
+    // Expand short links (e.g. amzn.in, dl.flipkart.com) first to get the full URL
+    const expandedUrl = await resolveShortLink(url.trim());
+
+    // Extract product slug / query accurately using bulletproof extractor
+    let extractedQuery = extractProductQueryFromUrl(expandedUrl);
+
     // Strip query parameters (?crid=..., &dib=..., etc.) and hash fragments
-    const canonicalUrl = getCanonicalProductUrl(url);
+    const canonicalUrl = getCanonicalProductUrl(expandedUrl);
     let urlObj;
     try {
       urlObj = new URL(canonicalUrl);
@@ -315,30 +329,31 @@ const analyzeUrl = async (req, res, next) => {
     else if (urlObj.hostname.includes('blinkit')) detectedPlatform = 'Blinkit';
     else if (urlObj.hostname.includes('zepto')) detectedPlatform = 'Zepto';
 
-    // Extract product slug / keywords from canonical path
-    const pathSegments = urlObj.pathname.split('/').filter(Boolean);
-    let extractedSlug = '';
+    // Fallback if extractedQuery is empty
+    if (!extractedQuery) {
+      const pathSegments = urlObj.pathname.split('/').filter(Boolean);
+      let extractedSlug = '';
 
-    for (const segment of pathSegments) {
-      if (
-        segment.length > 3 &&
-        !['dp', 'p', 'gp', 'product', 'buy', 'item', 'itm', 'pd', 'ref'].includes(segment.toLowerCase()) &&
-        !/^[A-Z0-9]{10}$/i.test(segment)
-      ) {
-        extractedSlug = segment;
-        break;
+      for (const segment of pathSegments) {
+        if (
+          segment.length > 3 &&
+          !['dp', 'p', 'gp', 'product', 'buy', 'item', 'itm', 'pd', 'ref'].includes(segment.toLowerCase()) &&
+          !/^[A-Z0-9]{10}$/i.test(segment)
+        ) {
+          extractedSlug = segment;
+          break;
+        }
       }
-    }
 
-    if (!extractedSlug && pathSegments.length > 0) {
-      extractedSlug = pathSegments[0];
-    }
+      if (!extractedSlug && pathSegments.length > 0) {
+        extractedSlug = pathSegments[0];
+      }
 
-    // Clean up slug into keywords (handles camelCase & attached dimensions like "toy20cm" -> "toy 20 cm")
-    const keywords = cleanProductSlug(extractedSlug);
+      extractedQuery = cleanProductSlug(extractedSlug);
+    }
 
     // Deterministic hash seed based on canonical URL and slug
-    const seed = getDeterministicHash(canonicalUrl || keywords);
+    const seed = getDeterministicHash(canonicalUrl || extractedQuery);
     const normalizedSeed = (seed % 1000) / 1000;
 
     // 1. Attempt lightweight server-side fetch with standard browser User-Agent header (3-second timeout)
@@ -424,115 +439,18 @@ const analyzeUrl = async (req, res, next) => {
       // Graceful fallback to smart keyword heuristics if blocked by anti-bot, timed out, or offline
     }
 
-    // 2. Smart Metadata & Keyword Detection Rules
-    const combinedAnalysisText = `${fetchedTitle} ${keywords} ${url}`.toLowerCase();
-
-    // Detect Toys / Kids / Covers / Cables / Accessories BEFORE matching "phone" or "watch"
-    const isKidsOrToy = /\b(kid|kids|toy|toys|baby|babies|toddler|toddlers|doll|dolls|baybee|musical\s*toy|pretend|educational|preschool|learning\s*toy)\b/i.test(combinedAnalysisText);
-    const isCaseOrCover = /\b(cover|case|cases|skin|pouch|sleeve|tempered\s*glass|screen\s*protector|back\s*cover)\b/i.test(combinedAnalysisText);
-    const isCableOrCharger = /\b(cable|cables|charger|chargers|adapter|cord|wire|usb\s*cable|lightning|type\s*c|power\s*bank)\b/i.test(combinedAnalysisText);
-    const isBottleOrKitchen = /\b(bottle|bottles|flask|sipper|mug|tumbler|water\s*bottle|lunch\s*box)\b/i.test(combinedAnalysisText);
-    const isStandOrHolder = /\b(stand|holder|mount|tripod|cradle|car\s*mount)\b/i.test(combinedAnalysisText);
-
-    const isAccessoryOrToy = isKidsOrToy || isCaseOrCover || isCableOrCharger || isBottleOrKitchen || isStandOrHolder;
-
-    // Only assign ₹14,000+ smartphone pricing if real smartphone brand/model keywords are present AND NOT an accessory/toy!
-    const isRealSmartphone = !isAccessoryOrToy && /\b(iphone|samsung\s*galaxy|oneplus|redmi|realme|google\s*pixel|pixel\s*\d|vivo|oppo|5g\s*smartphone)\b/i.test(combinedAnalysisText);
-
-    // Query existing catalog
-    let allProducts = [];
-    if (getIsConnected()) {
-      allProducts = await Product.find({}).lean();
-    } else {
-      allProducts = await inMemoryStore.products.find({});
+    if (!extractedQuery && fetchedTitle) {
+      extractedQuery = fetchedTitle;
     }
 
-    // Match keywords against catalog (Guard strictly prevents matching phones/laptops for toys or covers)
-    const searchWords = (fetchedTitle || keywords).toLowerCase().split(/\s+/).filter((w) => w.length > 2);
-    const genericStopWords = new Set([
-      'wireless', 'headphone', 'headphones', 'earphone', 'earphones', 'earbuds',
-      'bluetooth', 'black', 'white', 'smart', 'case', 'cover', 'cable', 'charger',
-      'device', 'edition', 'pack', 'unit', 'ultra', 'fast', 'plus', 'pro', 'max',
-      'online', 'india', 'best', 'price'
-    ]);
+    // Required logging for verification in backend terminal
+    console.log('[Analyze-URL] Extracted Query:', extractedQuery);
 
-    let matchedProduct = null;
-    let highestMatchScore = 0;
+    const keywords = extractedQuery;
 
-    for (const prod of allProducts) {
-      const prodSubCategory = (prod.subCategory || '').toLowerCase();
-      const prodTitle = (prod.title || '').toLowerCase();
-      const prodBrand = (prod.brand || '').toLowerCase();
-      const prodText = `${prod.title} ${prod.brand} ${prod.subCategory} ${(prod.tags || []).join(' ')}`.toLowerCase();
-
-      // Guard 1: If query is an accessory or toy, NEVER match a real smartphone/laptop catalog item
-      if (isAccessoryOrToy) {
-        if (prodSubCategory.includes('smartphones') || prodSubCategory.includes('laptop') || prod.mrp > 3000) {
-          continue;
-        }
-      }
-
-      // Guard 2: If query does not mention real smartphone brands, don't match smartphone catalog products
-      if (!isRealSmartphone && (prodSubCategory.includes('smartphones') || prodTitle.includes('iphone'))) {
-        continue;
-      }
-
-      let matchCount = 0;
-      let brandMatched = prodBrand && searchWords.includes(prodBrand);
-      let distinctiveMatches = 0;
-
-      for (const word of searchWords) {
-        if (prodText.includes(word)) {
-          matchCount++;
-          if (!genericStopWords.has(word)) {
-            distinctiveMatches++;
-          }
-        }
-      }
-
-      // Require either matching brand + at least 1 distinctive word, OR at least 2 non-generic distinctive words
-      if ((brandMatched && distinctiveMatches >= 1) || distinctiveMatches >= 2) {
-        if (matchCount > highestMatchScore) {
-          highestMatchScore = matchCount;
-          matchedProduct = prod;
-        }
-      }
-    }
-
-    // If strong match (at least 2 words or exact brand/device), return catalog item
-    if (matchedProduct && highestMatchScore >= 2) {
-      let finalMatched = { ...matchedProduct };
-      if (finalMatched.platformListings && finalMatched.platformListings.length > 0) {
-        finalMatched.platformListings = finalMatched.platformListings.map((listing) => {
-          const isPastedPlatform = listing.platform.toLowerCase() === detectedPlatform.toLowerCase();
-          return {
-            ...listing,
-            basePrice: isPastedPlatform && hasUserPrice ? Math.round(enteredPrice) : listing.basePrice,
-            productUrl: isPastedPlatform
-              ? canonicalUrl
-              : getPlatformSearchUrl(listing.platform, finalMatched.title || finalMatched.name),
-          };
-        });
-      }
-      const decision = calculateDecisionMetrics(finalMatched);
-      return res.json({
-        success: true,
-        isExisting: true,
-        matchedBy: 'keyword_catalog',
-        canonicalUrl,
-        keywords,
-        detectedPlatform,
-        product: {
-          ...finalMatched,
-          decision,
-          lowestPrice: decision?.cheapestPlatform?.netPayablePrice || finalMatched.mrp,
-        },
-      });
-    }
-
-    // 2.5: RapidAPI Real-Time Product Search Integration
+    // 2. RapidAPI Real-Time Product Search Integration
     // When analyzing a real pasted link, attempt live query with clean slug & platform suffix
-    const cleanSlug = keywords || fetchedTitle || '';
+    const cleanSlug = extractedQuery;
     if (cleanSlug && process.env.RAPIDAPI_KEY) {
       try {
         // Formulate platform-specific search query
@@ -548,12 +466,12 @@ const analyzeUrl = async (req, res, next) => {
         const primaryQuery = `${cleanSlug} ${platformSuffix}`.trim();
         const fallbackQuery = cleanSlug.trim();
 
-        // Query RapidAPI with limit 8 to have a rich pool for Indian platform matching
-        let rapidResults = await searchRapidApi(primaryQuery, 8);
+        // Query RapidAPI with limit 10 to have a rich pool for Indian platform matching
+        let rapidResults = await searchRapidApi(primaryQuery, 10);
 
         // Fallback to plain cleanSlug if primary query returns no results or only inflated resellers
         if (!rapidResults || rapidResults.length === 0 || rapidResults.every(isInflatedReseller)) {
-          const fallbackResults = await searchRapidApi(fallbackQuery, 8);
+          const fallbackResults = await searchRapidApi(fallbackQuery, 10);
           if (fallbackResults && fallbackResults.length > 0) {
             rapidResults = fallbackResults;
           }
@@ -561,54 +479,56 @@ const analyzeUrl = async (req, res, next) => {
 
         if (rapidResults && rapidResults.length > 0) {
           // Smart selection: Excludes inflated import resellers (desertcart, ubuy, etc.),
-          // prefers matching Indian platform and title keyword/brand overlap
+          // enforces brand and keyword overlap, and disqualifies cross-category mismatches
           const topResult = pickBestMatchingProduct(rapidResults, {
             detectedPlatform,
             cleanSlug,
           });
 
-          // Fetch multi-store offers if available
-          let liveOffers = null;
-          if (topResult && topResult.product_id) {
-            try {
-              liveOffers = await getProductOffers(topResult.product_id);
-            } catch (offerErr) {
-              // Ignore offer fetch error; standard platform synthesis will take over
-            }
-          }
-
-          const mappedProduct = mapRapidProductToPicksy(topResult, {
-            canonicalUrl,
-            detectedPlatform,
-            userPrice: hasUserPrice ? enteredPrice : (fetchedPrice || null),
-            offers: liveOffers,
-          });
-
-          if (mappedProduct) {
-            let savedProduct = null;
-            if (getIsConnected()) {
-              savedProduct = await Product.create(mappedProduct);
-              savedProduct = savedProduct.toObject ? savedProduct.toObject() : savedProduct;
-            } else {
-              savedProduct = await inMemoryStore.products.create(mappedProduct);
+          if (topResult) {
+            // Fetch multi-store offers if available
+            let liveOffers = null;
+            if (topResult.product_id) {
+              try {
+                liveOffers = await getProductOffers(topResult.product_id);
+              } catch (offerErr) {
+                // Ignore offer fetch error; standard platform synthesis will take over
+              }
             }
 
-            const decision = calculateDecisionMetrics(savedProduct);
-
-            return res.json({
-              success: true,
-              isLiveApi: true,
-              detectedPlatform,
+            const mappedProduct = mapRapidProductToPicksy(topResult, {
               canonicalUrl,
-              keywords,
-              hasUserPrice,
-              userPrice: hasUserPrice ? enteredPrice : null,
-              product: {
-                ...savedProduct,
-                decision,
-                lowestPrice: decision?.cheapestPlatform?.netPayablePrice || savedProduct.mrp,
-              },
+              detectedPlatform,
+              userPrice: hasUserPrice ? enteredPrice : (fetchedPrice || null),
+              offers: liveOffers,
             });
+
+            if (mappedProduct) {
+              let savedProduct = null;
+              if (getIsConnected()) {
+                savedProduct = await Product.create(mappedProduct);
+                savedProduct = savedProduct.toObject ? savedProduct.toObject() : savedProduct;
+              } else {
+                savedProduct = await inMemoryStore.products.create(mappedProduct);
+              }
+
+              const decision = calculateDecisionMetrics(savedProduct);
+
+              return res.json({
+                success: true,
+                isLiveApi: true,
+                detectedPlatform,
+                canonicalUrl,
+                keywords,
+                hasUserPrice,
+                userPrice: hasUserPrice ? enteredPrice : null,
+                product: {
+                  ...savedProduct,
+                  decision,
+                  lowestPrice: decision?.cheapestPlatform?.netPayablePrice || savedProduct.mrp,
+                },
+              });
+            }
           }
         }
       } catch (rapidErr) {
@@ -616,7 +536,25 @@ const analyzeUrl = async (req, res, next) => {
       }
     }
 
-    // 3. Determine Category, SubCategory, and Image Pool (Safe Fallback Engine)
+    // 3. Smart Metadata & Keyword Detection Rules (Safe Fallback Engine)
+    const combinedAnalysisText = `${fetchedTitle} ${keywords} ${url}`.toLowerCase();
+    const searchWords = (fetchedTitle || keywords).toLowerCase().split(/\s+/).filter((w) => w.length > 2);
+
+    // Detect Clothing / Fashion / Ethnic wear
+    const isClothing = /\b(suit|suits|kurta|kurtas|kurti|kurtis|saree|sarees|shawl|shawls|dupatta|rayon|viscose|printed|dress|dresses|clothing|apparel|ethnic|women|womens|men|mens|shirt|tshirt|hoodie|jacket|jeans|trousers|top|pant|pants|palazzo)\b/i.test(combinedAnalysisText);
+
+    // Detect Toys / Kids / Covers / Cables / Accessories BEFORE matching "phone" or "watch"
+    const isKidsOrToy = /\b(kid|kids|toy|toys|baby|babies|toddler|toddlers|doll|dolls|baybee|musical\s*toy|pretend|educational|preschool|learning\s*toy)\b/i.test(combinedAnalysisText);
+    const isCaseOrCover = /\b(cover|case|cases|skin|pouch|sleeve|tempered\s*glass|screen\s*protector|back\s*cover)\b/i.test(combinedAnalysisText);
+    const isCableOrCharger = /\b(cable|cables|charger|chargers|adapter|cord|wire|usb\s*cable|lightning|type\s*c|power\s*bank)\b/i.test(combinedAnalysisText);
+    const isBottleOrKitchen = /\b(bottle|bottles|flask|sipper|mug|tumbler|water\s*bottle|lunch\s*box)\b/i.test(combinedAnalysisText);
+    const isStandOrHolder = /\b(stand|holder|mount|tripod|cradle|car\s*mount)\b/i.test(combinedAnalysisText);
+
+    const isAccessoryOrToy = isKidsOrToy || isCaseOrCover || isCableOrCharger || isBottleOrKitchen || isStandOrHolder;
+
+    // Only assign ₹14,000+ smartphone pricing if real smartphone brand/model keywords are present AND NOT clothing AND NOT an accessory/toy!
+    const isRealSmartphone = !isClothing && !isAccessoryOrToy && /\b(iphone|samsung\s*galaxy|oneplus|redmi|realme|google\s*pixel|pixel\s*\d|vivo|oppo|5g\s*smartphone)\b/i.test(combinedAnalysisText);
+
     const displayTitle = fetchedTitle
       ? fetchedTitle
       : keywords
@@ -635,6 +573,11 @@ const analyzeUrl = async (req, res, next) => {
       if (!extractedBrand || extractedBrand.length < 3) extractedBrand = 'PlayVibe Kids';
       // Deterministic dynamic price between ₹299 – ₹899
       computedPseudoPrice = Math.round((299 + normalizedSeed * (899 - 299)) / 10) * 10 - 1;
+    } else if (isClothing) {
+      determinedSubCategory = 'Footwear & Fashion';
+      imagePoolKey = 'clothing';
+      // Deterministic dynamic price between ₹349 – ₹899
+      computedPseudoPrice = Math.round((349 + normalizedSeed * (899 - 349)) / 10) * 10 - 1;
     } else if (isCaseOrCover) {
       determinedSubCategory = 'Mobile Accessories & Cases';
       imagePoolKey = 'cases';
@@ -673,7 +616,7 @@ const analyzeUrl = async (req, res, next) => {
       } else {
         computedPseudoPrice = Math.round((13999 + normalizedSeed * (24999 - 13999)) / 100) * 100 - 1;
       }
-    } else if (/\b(headphone|headphones|earphone|earphones|airpods|earbuds|buds|wh-1000xm|noise\s*cancelling)\b/i.test(combinedAnalysisText)) {
+    } else if (!isClothing && /\b(headphone|headphones|earphone|earphones|airpods|earbuds|buds|wh-1000xm|noise\s*cancelling)\b/i.test(combinedAnalysisText)) {
       determinedSubCategory = 'Audio & Wearables';
       imagePoolKey = 'audio';
       if (/xm5|airpods\s*max/i.test(combinedAnalysisText)) {
