@@ -113,14 +113,74 @@ const resolveShortLink = async (urlStr) => {
 };
 
 /**
- * Bulletproof Amazon & Flipkart URL Slug Extractor:
- * - Amazon: Grabs the path segment immediately preceding /dp/ or /gp/product/
- * - Flipkart: Grabs the path segment immediately preceding /p/
- * - Strips noise tokens (ref, sr, dp, gp, product) and decodes URI components
- * - Separates attached numbers and dimension units (e.g. toy20cm -> toy 20 cm)
+ * Decode common HTML entities (&quot;, &amp;, &#39;, &apos;, &nbsp;, etc.)
  */
-const extractProductQueryFromUrl = (rawUrl) => {
-  if (!rawUrl || typeof rawUrl !== 'string') return '';
+const decodeHtmlEntities = (text) => {
+  if (!text || typeof text !== 'string') return '';
+  return text
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&')
+    .replace(/&#39;|&apos;|&#x27;|&#8217;/g, "'")
+    .replace(/&#8220;|&#8221;/g, '"')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&#(\d+);/g, (match, dec) => String.fromCharCode(dec));
+};
+
+/**
+ * Clean page <title> or og:title by stripping store suffixes and marketing phrases:
+ * e.g. "Buy Apple iPhone 15 (128 GB) - Black Online at Low Prices in India - Amazon.in"
+ *   -> "Apple iPhone 15 (128 GB) - Black"
+ */
+const cleanMetaTitle = (rawTitle) => {
+  if (!rawTitle) return '';
+  let title = decodeHtmlEntities(rawTitle).trim();
+
+  // Strip store marketing suffixes and prefixes
+  title = title
+    // Amazon patterns
+    .replace(/Buy\s+(.+?)\s+Online\s+at\s+Low\s+Prices\s+in\s+India\s*-\s*Amazon\.in.*$/i, '$1')
+    .replace(/Buy\s+(.+?)\s+Online\s+at\s+Low\s+Prices.*$/i, '$1')
+    .replace(/Online\s+at\s+Low\s+Prices\s+in\s+India\s*-\s*Amazon\.in.*$/i, '')
+    .replace(/Amazon\.in\s*:?\s*.*$/i, '')
+    .replace(/:\s*Amazon\.in\s*:?.*$/i, '')
+    .replace(/\|\s*Amazon(?:\.in)?.*$/i, '')
+    .replace(/-\s*Amazon\.in.*$/i, '')
+    // Flipkart patterns
+    .replace(/\s*\|\s*Flipkart(?:\.com)?.*$/i, '')
+    .replace(/Flipkart\.com\s*:?\s*.*$/i, '')
+    .replace(/Buy\s+(.+?)\s+Online\s+at\s+Best\s+Price.*$/i, '$1')
+    // Myntra patterns
+    .replace(/\s*\|\s*Myntra.*$/i, '')
+    .replace(/Myntra\s*:?\s*.*$/i, '')
+    .replace(/Buy\s+(.+?)\s+Online\s+on\s+Myntra.*$/i, '$1')
+    // Tata CLiQ patterns
+    .replace(/\s*\|\s*Tata\s*CLiQ.*$/i, '')
+    .replace(/Tata\s*CLiQ\s*:?\s*.*$/i, '')
+    // Common noise
+    .replace(/:\s*Buy\s.*$/i, '')
+    .replace(/\s*-\s*Buy\s.*$/i, '')
+    // Strip leading action verbs like "Buy", "Shop", "Order"
+    .replace(/^(?:Buy|Shop|Order)\s+/i, '')
+    // Strip trailing category descriptors (e.g. "- Apparel for Girls")
+    .replace(/\s*-\s*(?:Apparel|Clothing|Footwear|Fashion|Accessories)(?:\s+for\s+.*)?$/i, '')
+    .trim();
+
+  return title;
+};
+
+/**
+ * Extract clean product identifiers from URL:
+ * - Amazon: ASIN (/dp/XXXX or /gp/product/XXXX) and slug
+ * - Flipkart: PID (/p/XXXX or ?pid=XXXX) and slug
+ * - Myntra: item ID and slug
+ * - Tata CLiQ: product code and slug
+ */
+const extractProductIdentifiersFromUrl = (rawUrl) => {
+  if (!rawUrl || typeof rawUrl !== 'string') {
+    return { slug: '', cleanSlug: '', asin: '', pid: '', platform: 'Amazon' };
+  }
   try {
     const urlStr = rawUrl.trim();
     const urlObj = new URL(urlStr.startsWith('http') ? urlStr : `https://${urlStr}`);
@@ -129,9 +189,21 @@ const extractProductQueryFromUrl = (rawUrl) => {
     const segments = pathname.split('/').filter(Boolean);
 
     let slug = '';
+    let asin = '';
+    let pid = '';
+    let platform = 'Amazon';
 
-    // 1. Amazon: Segment immediately preceding /dp/ or /gp/product/
+    if (hostname.includes('flipkart')) platform = 'Flipkart';
+    else if (hostname.includes('myntra')) platform = 'Myntra';
+    else if (hostname.includes('tatacliq')) platform = 'Tata CliQ';
+    else if (hostname.includes('blinkit')) platform = 'Blinkit';
+    else if (hostname.includes('zepto')) platform = 'Zepto';
+
+    // 1. Amazon: Extract ASIN & Slug
     if (hostname.includes('amazon')) {
+      const asinMatch = pathname.match(/(?:\/dp\/|\/gp\/product\/|\/gp\/aw\/d\/)([A-Z0-9]{10})/i);
+      if (asinMatch) asin = asinMatch[1].toUpperCase();
+
       const dpIdx = segments.findIndex((s) => s.toLowerCase() === 'dp');
       if (dpIdx > 0) {
         slug = segments[dpIdx - 1];
@@ -146,21 +218,44 @@ const extractProductQueryFromUrl = (rawUrl) => {
         }
       }
     }
-    // 2. Flipkart: Segment immediately preceding /p/
+    // 2. Flipkart: Extract PID & Slug
     else if (hostname.includes('flipkart')) {
+      const pidParam = urlObj.searchParams.get('pid');
       const pIdx = segments.findIndex((s) => s.toLowerCase() === 'p');
       if (pIdx > 0) {
         slug = segments[pIdx - 1];
+        if (!pidParam && segments.length > pIdx + 1) {
+          pid = segments[pIdx + 1];
+        }
       }
+      if (pidParam) pid = pidParam;
     }
-    // 3. Myntra / Tata CLiQ / Generic
-    else if (hostname.includes('myntra') || hostname.includes('tatacliq')) {
-      if (segments.length > 0) {
+    // 3. Myntra: Extract Item ID & Slug
+    else if (hostname.includes('myntra')) {
+      const itemIdMatch = pathname.match(/\/(\d+)(?:\/buy)?$/i);
+      if (itemIdMatch) pid = itemIdMatch[1];
+      const buyIdx = segments.findIndex((s) => s.toLowerCase() === 'buy');
+      if (buyIdx >= 2) {
+        slug = segments[buyIdx - 2];
+      } else if (segments.length >= 2 && !isNaN(Number(segments[segments.length - 1]))) {
+        slug = segments[segments.length - 2];
+      } else if (segments.length > 0) {
         slug = segments[segments.length - 1];
       }
     }
+    // 4. Tata CLiQ: Extract Product Code & Slug
+    else if (hostname.includes('tatacliq')) {
+      const pMatch = pathname.match(/\/p-([a-zA-Z0-9]+)/i);
+      if (pMatch) pid = pMatch[1];
+      const pIdx = segments.findIndex((s) => s.startsWith('p-'));
+      if (pIdx > 0) {
+        slug = segments[pIdx - 1];
+      } else if (segments.length > 0) {
+        slug = segments[0];
+      }
+    }
 
-    // Fallback if specific pattern did not catch it
+    // Fallback slug identification if specific pattern did not catch it
     if (!slug) {
       for (const seg of segments) {
         if (
@@ -178,18 +273,23 @@ const extractProductQueryFromUrl = (rawUrl) => {
       slug = segments[0];
     }
 
-    // Clean noise tokens and format
-    let clean = decodeURIComponent(slug || '');
-    clean = clean.replace(/\b(ref|sr|dp|gp|product)\b/gi, ' ');
-    clean = clean.replace(/([a-zA-Z]+)(\d+)/g, '$1 $2');
-    clean = clean.replace(/(\d+)([a-zA-Z]+)/g, '$1 $2');
-    clean = clean.replace(/[-_+/.]/g, ' ');
-    clean = clean.replace(/\s+/g, ' ').trim();
-
-    return clean;
+    const cleanSlug = cleanProductSlug(slug);
+    return { slug, cleanSlug, asin, pid, platform };
   } catch (err) {
-    return '';
+    return { slug: '', cleanSlug: '', asin: '', pid: '', platform: 'Amazon' };
   }
+};
+
+/**
+ * Bulletproof Amazon & Flipkart URL Slug Extractor:
+ * - Amazon: Grabs the path segment immediately preceding /dp/ or /gp/product/
+ * - Flipkart: Grabs the path segment immediately preceding /p/
+ * - Strips noise tokens (ref, sr, dp, gp, product) and decodes URI components
+ * - Separates attached numbers and dimension units (e.g. toy20cm -> toy 20 cm)
+ */
+const extractProductQueryFromUrl = (rawUrl) => {
+  const { cleanSlug } = extractProductIdentifiersFromUrl(rawUrl);
+  return cleanSlug;
 };
 
 /**
@@ -377,17 +477,23 @@ const CATEGORY_IMAGES = {
 
 /**
  * Robust INR price parser handling formats like:
- * "₹1,899", "Rs. 1,899", "52% off₹3,990", "1899", 1899
+ * "₹37,990.00", "₹296", "Rs. 1,499.00", "52% off₹3,990", "1899", 1899
+ * Strips currency symbols, commas, spaces, and decimal cents.
  */
 const parseInrPrice = (priceVal) => {
   if (typeof priceVal === 'number' && !isNaN(priceVal)) return Math.round(priceVal);
   if (!priceVal) return null;
   const str = String(priceVal).trim();
-  const rupeeMatch = str.match(/(?:₹|Rs\.?)\s*([\d,]+(?:\.\d+)?)/i);
+
+  // Match currency prefixes: ₹, Rs., Rs, INR followed by numbers with optional commas and decimals
+  const rupeeMatch = str.match(/(?:₹|Rs\.?|INR)\s*([0-9,]+(?:\.[0-9]+)?)/i);
   if (rupeeMatch) {
-    const num = parseFloat(rupeeMatch[1].replace(/,/g, ''));
+    const cleanNum = rupeeMatch[1].replace(/,/g, '');
+    const num = parseFloat(cleanNum);
     if (!isNaN(num) && num > 0) return Math.round(num);
   }
+
+  // Generic fallback: strip commas, match first continuous number
   const cleanStr = str.replace(/,/g, '');
   const match = cleanStr.match(/\d+(?:\.\d+)?/);
   if (match) {
@@ -504,13 +610,13 @@ const generateHistoricalPrices = (basePrice, days = 30) => {
 /**
  * Call RapidAPI Real-Time Product Search API
  * @param {string} query Search terms (product keywords or name)
- * @param {number} limit Maximum results to fetch (default: 5)
+ * @param {number} limit Maximum results to fetch (default: 10)
  * @returns {Promise<Array|null>} Array of raw product objects or null if unavailable
  */
-const searchRapidApi = async (query, limit = 5) => {
+const searchRapidApi = async (query, limit = 10) => {
   const apiKey = process.env.RAPIDAPI_KEY;
   if (!apiKey || !apiKey.trim()) {
-    console.warn('[RapidAPI] RAPIDAPI_KEY is not defined in backend/.env');
+    console.error('[RapidAPI Error] RAPIDAPI_KEY is not defined in backend/.env');
     return null;
   }
 
@@ -519,7 +625,7 @@ const searchRapidApi = async (query, limit = 5) => {
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+    const timeoutId = setTimeout(() => controller.abort(), 22000); // 22s timeout for reliable live response
 
     const url = `https://${RAPIDAPI_HOST}/search?q=${encodeURIComponent(
       cleanQuery
@@ -537,7 +643,10 @@ const searchRapidApi = async (query, limit = 5) => {
     clearTimeout(timeoutId);
 
     if (!res.ok) {
-      console.warn(`[RapidAPI] API call returned status ${res.status} ${res.statusText}`);
+      const errBody = await res.text().catch(() => '');
+      console.error(
+        `[RapidAPI Error] HTTP ${res.status} ${res.statusText} for query "${cleanQuery}": ${errBody}`
+      );
       return null;
     }
 
@@ -545,7 +654,7 @@ const searchRapidApi = async (query, limit = 5) => {
     const products = Array.isArray(json.data) ? json.data : json.data?.products || [];
     return products.length > 0 ? products : null;
   } catch (err) {
-    console.warn(`[RapidAPI] Search fetch failed: ${err.message}`);
+    console.error(`[RapidAPI Error] Search fetch failed for query "${cleanQuery}":`, err.message);
     return null;
   }
 };
@@ -561,7 +670,7 @@ const getProductOffers = async (productId) => {
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
 
     const url = `https://${RAPIDAPI_HOST}/product-offers?product_id=${encodeURIComponent(
       productId
@@ -578,12 +687,17 @@ const getProductOffers = async (productId) => {
 
     clearTimeout(timeoutId);
 
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '');
+      console.error(`[RapidAPI Error] product-offers returned status ${res.status}: ${errBody}`);
+      return null;
+    }
 
     const json = await res.json();
     const offers = json.data?.offers || (Array.isArray(json.data) ? json.data : null);
     return Array.isArray(offers) && offers.length > 0 ? offers : null;
   } catch (err) {
+    console.error('[RapidAPI Error] Product-offers fetch failed:', err.message);
     return null;
   }
 };
@@ -607,16 +721,44 @@ const mapRapidProductToPicksy = (
   const subCategory = detectSubCategory(title, rawProduct.product_description || '');
   const brand = detectBrand(title);
 
-  // Extract live prices
-  const rawPrice = parseInrPrice(rawProduct.price || rawProduct.offer?.price);
-  const rawOriginalPrice = parseInrPrice(
-    rawProduct.original_price ||
-      (rawProduct.typical_price_range && rawProduct.typical_price_range[1])
-  );
+  // Extract live INR prices safely from all available RapidAPI fields
+  let livePrice = null;
 
-  let basePrice = userPrice && !isNaN(Number(userPrice)) && Number(userPrice) > 0
-    ? Number(userPrice)
-    : rawPrice || 999;
+  // 1. Check verified Indian store offers if available
+  if (Array.isArray(offers) && offers.length > 0) {
+    const matchingOffer = offers.find(
+      (o) =>
+        !isInflatedReseller({ store_name: o.store_name, product_page_url: o.offer_page_url }) &&
+        String(o.store_name || '').toLowerCase().includes(detectedPlatform.toLowerCase())
+    );
+    if (matchingOffer && matchingOffer.price) {
+      livePrice = parseInrPrice(matchingOffer.price);
+    }
+    if (!livePrice) {
+      const anyIndianOffer = offers.find(
+        (o) => !isInflatedReseller({ store_name: o.store_name, product_page_url: o.offer_page_url }) && o.price
+      );
+      if (anyIndianOffer) livePrice = parseInrPrice(anyIndianOffer.price);
+    }
+  }
+
+  // 2. From raw product direct fields (price, offer.price, typical_price_range[0])
+  if (!livePrice) {
+    livePrice =
+      parseInrPrice(rawProduct.price) ||
+      parseInrPrice(rawProduct.offer?.price) ||
+      (Array.isArray(rawProduct.typical_price_range) && parseInrPrice(rawProduct.typical_price_range[0])) ||
+      parseInrPrice(rawProduct.typical_price_range?.[1]);
+  }
+
+  const rawOriginalPrice =
+    parseInrPrice(rawProduct.original_price) ||
+    (Array.isArray(rawProduct.typical_price_range) && parseInrPrice(rawProduct.typical_price_range[1]));
+
+  let basePrice =
+    userPrice && !isNaN(Number(userPrice)) && Number(userPrice) > 0
+      ? Number(userPrice)
+      : livePrice || 999;
 
   let mrp = rawOriginalPrice && rawOriginalPrice > basePrice
     ? rawOriginalPrice
@@ -824,6 +966,9 @@ module.exports = {
   generateHistoricalPrices,
   cleanProductSlug,
   extractProductQueryFromUrl,
+  extractProductIdentifiersFromUrl,
+  cleanMetaTitle,
+  decodeHtmlEntities,
   resolveShortLink,
   pickBestMatchingProduct,
   isInflatedReseller,

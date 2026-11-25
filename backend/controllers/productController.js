@@ -12,6 +12,8 @@ const {
   isInflatedReseller,
   resolveShortLink,
   extractProductQueryFromUrl,
+  extractProductIdentifiersFromUrl,
+  cleanMetaTitle,
 } = require('../utils/rapidApiService');
 
 // @desc    Get all products with filtering, search, sorting & dynamic decision engine data
@@ -306,13 +308,13 @@ const analyzeUrl = async (req, res, next) => {
     const enteredPrice = Number(rawEnteredPrice);
     const hasUserPrice = !isNaN(enteredPrice) && enteredPrice > 0;
 
-    // Expand short links (e.g. amzn.in, dl.flipkart.com) first to get the full URL
+    // 1. Expand short links (amzn.in, amzn.to, dl.flipkart.com, fkrt.it) first to get the full URL
     const expandedUrl = await resolveShortLink(url.trim());
 
-    // Extract product slug / query accurately using bulletproof extractor
-    let extractedQuery = extractProductQueryFromUrl(expandedUrl);
+    // 2. Extract clean product identifiers from URL (slug, ASIN, PID, platform)
+    const { slug, cleanSlug, asin, pid, platform: detectedPlatform } = extractProductIdentifiersFromUrl(expandedUrl);
 
-    // Strip query parameters (?crid=..., &dib=..., etc.) and hash fragments
+    // Strip tracking parameters (?crid=..., &dib=...) for clean canonical URL
     const canonicalUrl = getCanonicalProductUrl(expandedUrl);
     let urlObj;
     try {
@@ -321,49 +323,18 @@ const analyzeUrl = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Invalid URL format provided.' });
     }
 
-    // Detect platform
-    let detectedPlatform = 'Amazon';
-    if (urlObj.hostname.includes('flipkart')) detectedPlatform = 'Flipkart';
-    else if (urlObj.hostname.includes('myntra')) detectedPlatform = 'Myntra';
-    else if (urlObj.hostname.includes('tatacliq')) detectedPlatform = 'Tata CliQ';
-    else if (urlObj.hostname.includes('blinkit')) detectedPlatform = 'Blinkit';
-    else if (urlObj.hostname.includes('zepto')) detectedPlatform = 'Zepto';
-
-    // Fallback if extractedQuery is empty
-    if (!extractedQuery) {
-      const pathSegments = urlObj.pathname.split('/').filter(Boolean);
-      let extractedSlug = '';
-
-      for (const segment of pathSegments) {
-        if (
-          segment.length > 3 &&
-          !['dp', 'p', 'gp', 'product', 'buy', 'item', 'itm', 'pd', 'ref'].includes(segment.toLowerCase()) &&
-          !/^[A-Z0-9]{10}$/i.test(segment)
-        ) {
-          extractedSlug = segment;
-          break;
-        }
-      }
-
-      if (!extractedSlug && pathSegments.length > 0) {
-        extractedSlug = pathSegments[0];
-      }
-
-      extractedQuery = cleanProductSlug(extractedSlug);
-    }
-
-    // Deterministic hash seed based on canonical URL and slug
-    const seed = getDeterministicHash(canonicalUrl || extractedQuery);
+    // Deterministic hash seed based on canonical URL or slug
+    const seed = getDeterministicHash(canonicalUrl || cleanSlug);
     const normalizedSeed = (seed % 1000) / 1000;
 
-    // 1. Attempt lightweight server-side fetch with standard browser User-Agent header (3-second timeout)
+    // 3. Lightweight server-side fetch with standard browser User-Agent header (4-second timeout)
     let fetchedTitle = '';
     let fetchedImage = '';
     let fetchedPrice = null;
 
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
 
       const fetchRes = await fetch(canonicalUrl, {
         method: 'GET',
@@ -390,15 +361,7 @@ const analyzeUrl = async (req, res, next) => {
           html.match(/<title>([^<]+)<\/title>/i);
 
         if (ogTitleMatch && ogTitleMatch[1]) {
-          fetchedTitle = ogTitleMatch[1]
-            .replace(/Amazon\.in\s*:?.*$/i, '')
-            .replace(/Flipkart\.com\s*:?.*$/i, '')
-            .replace(/Myntra\s*:?.*$/i, '')
-            .replace(/\|\s*Amazon.*$/i, '')
-            .replace(/\|\s*Flipkart.*$/i, '')
-            .replace(/:\s*Buy\s.*$/i, '')
-            .replace(/Online\s+at\s+Low\s+Prices.*$/i, '')
-            .trim();
+          fetchedTitle = cleanMetaTitle(ogTitleMatch[1]);
         }
 
         // Extract og:image
@@ -416,8 +379,8 @@ const analyzeUrl = async (req, res, next) => {
           html.match(/<meta\s+name=["']twitter:data1["']\s+value=["']₹?([\d,]+)["']/i);
 
         if (priceMetaMatch && priceMetaMatch[1]) {
-          const p = parseFloat(priceMetaMatch[1].replace(/,/g, ''));
-          if (!isNaN(p) && p > 0) fetchedPrice = p;
+          const p = parseInrPrice(priceMetaMatch[1]);
+          if (p && p > 0) fetchedPrice = p;
         }
 
         if (!fetchedPrice) {
@@ -425,8 +388,8 @@ const analyzeUrl = async (req, res, next) => {
           let match;
           const extractedPrices = [];
           while ((match = rupeeRegex.exec(html)) !== null && extractedPrices.length < 8) {
-            const val = parseFloat(match[1].replace(/,/g, ''));
-            if (val >= 99 && val <= 500000) {
+            const val = parseInrPrice(match[1]);
+            if (val && val >= 99 && val <= 500000) {
               extractedPrices.push(val);
             }
           }
@@ -439,54 +402,62 @@ const analyzeUrl = async (req, res, next) => {
       // Graceful fallback to smart keyword heuristics if blocked by anti-bot, timed out, or offline
     }
 
-    if (!extractedQuery && fetchedTitle) {
-      extractedQuery = fetchedTitle;
+    // 4. Formulate clean product name for search
+    let cleanProductName = '';
+    if (fetchedTitle && fetchedTitle.length > 5 && !/^(amazon|flipkart|myntra|tata\s*cliq)/i.test(fetchedTitle.trim())) {
+      cleanProductName = fetchedTitle;
+    } else if (cleanSlug) {
+      cleanProductName = cleanSlug;
+    } else if (asin) {
+      cleanProductName = `${asin} ${detectedPlatform}`;
+    } else if (pid) {
+      cleanProductName = `${pid} ${detectedPlatform}`;
+    } else {
+      cleanProductName = `${detectedPlatform} Product`;
     }
 
-    // Required logging for verification in backend terminal
-    console.log('[Analyze-URL] Extracted Query:', extractedQuery);
+    // Create concise search query (first 8-10 words to avoid Google Shopping query overflow on long marketing titles)
+    const titleTokens = cleanProductName.split(/\s+/).filter(Boolean);
+    const searchQuery = titleTokens.length > 10 ? titleTokens.slice(0, 10).join(' ') : cleanProductName;
 
-    const keywords = extractedQuery;
+    console.log('[Analyze-URL] Clean Product Name:', cleanProductName, '| ASIN/PID:', asin || pid || 'N/A', '| RapidAPI Query:', searchQuery);
 
-    // 2. RapidAPI Real-Time Product Search Integration
-    // When analyzing a real pasted link, attempt live query with clean slug & platform suffix
-    const cleanSlug = extractedQuery;
-    if (cleanSlug && process.env.RAPIDAPI_KEY) {
+    const keywords = cleanProductName;
+
+    // 5. RapidAPI Real-Time Product Search Integration (Primary Live Engine)
+    if (searchQuery && process.env.RAPIDAPI_KEY) {
       try {
-        // Formulate platform-specific search query
-        let platformSuffix = 'amazon';
-        if (detectedPlatform === 'Flipkart' || urlObj.hostname.includes('flipkart')) {
-          platformSuffix = 'flipkart';
-        } else if (detectedPlatform === 'Tata CliQ' || urlObj.hostname.includes('tatacliq')) {
-          platformSuffix = 'tatacliq';
-        } else if (detectedPlatform === 'Myntra' || urlObj.hostname.includes('myntra')) {
-          platformSuffix = 'myntra';
-        }
+        console.log(`[RapidAPI] Fetching live Indian prices & images for: "${searchQuery}" (limit=10)...`);
 
-        const primaryQuery = `${cleanSlug} ${platformSuffix}`.trim();
-        const fallbackQuery = cleanSlug.trim();
+        // Query primary clean query with limit 10
+        let rapidResults = await searchRapidApi(searchQuery, 10);
 
-        // Query RapidAPI with limit 10 to have a rich pool for Indian platform matching
-        let rapidResults = await searchRapidApi(primaryQuery, 10);
-
-        // Fallback to plain cleanSlug if primary query returns no results or only inflated resellers
+        // Fallback to cleanSlug or store-specific query if primary returns no results or only inflated resellers
         if (!rapidResults || rapidResults.length === 0 || rapidResults.every(isInflatedReseller)) {
-          const fallbackResults = await searchRapidApi(fallbackQuery, 10);
-          if (fallbackResults && fallbackResults.length > 0) {
-            rapidResults = fallbackResults;
+          if (cleanSlug && cleanSlug !== searchQuery) {
+            const fallbackResults = await searchRapidApi(cleanSlug, 10);
+            if (fallbackResults && fallbackResults.length > 0) {
+              rapidResults = fallbackResults;
+            }
+          }
+          if (!rapidResults || rapidResults.length === 0 || rapidResults.every(isInflatedReseller)) {
+            const storeQuery = `${searchQuery} ${detectedPlatform.toLowerCase()}`.trim();
+            const storeResults = await searchRapidApi(storeQuery, 10);
+            if (storeResults && storeResults.length > 0) {
+              rapidResults = storeResults;
+            }
           }
         }
 
         if (rapidResults && rapidResults.length > 0) {
-          // Smart selection: Excludes inflated import resellers (desertcart, ubuy, etc.),
-          // enforces brand and keyword overlap, and disqualifies cross-category mismatches
+          // Score results by matching brand + model + variant keywords against product_title
           const topResult = pickBestMatchingProduct(rapidResults, {
             detectedPlatform,
-            cleanSlug,
+            cleanSlug: cleanProductName,
           });
 
           if (topResult) {
-            // Fetch multi-store offers if available
+            // Fetch live multi-store offers if product_id is available
             let liveOffers = null;
             if (topResult.product_id) {
               try {
@@ -499,11 +470,15 @@ const analyzeUrl = async (req, res, next) => {
             const mappedProduct = mapRapidProductToPicksy(topResult, {
               canonicalUrl,
               detectedPlatform,
-              userPrice: hasUserPrice ? enteredPrice : (fetchedPrice || null),
+              userPrice: hasUserPrice ? enteredPrice : null,
               offers: liveOffers,
             });
 
             if (mappedProduct) {
+              if (!mappedProduct.image && fetchedImage) {
+                mappedProduct.image = fetchedImage;
+              }
+
               let savedProduct = null;
               if (getIsConnected()) {
                 savedProduct = await Product.create(mappedProduct);
@@ -514,12 +489,14 @@ const analyzeUrl = async (req, res, next) => {
 
               const decision = calculateDecisionMetrics(savedProduct);
 
+              console.log(`[Analyze-URL] Success! Live product found: "${savedProduct.title}" | Price: ₹${decision?.cheapestPlatform?.netPayablePrice || savedProduct.mrp}`);
+
               return res.json({
                 success: true,
                 isLiveApi: true,
                 detectedPlatform,
                 canonicalUrl,
-                keywords,
+                keywords: cleanProductName,
                 hasUserPrice,
                 userPrice: hasUserPrice ? enteredPrice : null,
                 product: {
@@ -532,9 +509,11 @@ const analyzeUrl = async (req, res, next) => {
           }
         }
       } catch (rapidErr) {
-        console.warn('[Picksy] RapidAPI analyze-url fallback triggered:', rapidErr.message);
+        console.error('[RapidAPI Error] analyze-url API execution failed:', rapidErr.message);
       }
     }
+
+    console.error('[RapidAPI Error] No matching live RapidAPI product found or API unreachable. Falling back to category-based engine.');
 
     // 3. Smart Metadata & Keyword Detection Rules (Safe Fallback Engine)
     const combinedAnalysisText = `${fetchedTitle} ${keywords} ${url}`.toLowerCase();
