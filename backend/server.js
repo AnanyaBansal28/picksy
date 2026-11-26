@@ -12,8 +12,10 @@ const productRoutes = require('./routes/productRoutes');
 const cartRoutes = require('./routes/cartRoutes');
 const wishlistRoutes = require('./routes/wishlistRoutes');
 const alertRoutes = require('./routes/alertRoutes');
+const groceryRoutes = require('./routes/groceryRoutes');
 
 dotenv.config();
+dotenv.config({ path: path.join(__dirname, '.env') });
 
 const app = express();
 
@@ -61,6 +63,7 @@ app.use('/api/products', productRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/wishlist', wishlistRoutes);
 app.use('/api/alerts', alertRoutes);
+app.use('/api/grocery', groceryRoutes);
 
 // In production or when serving static build
 const distPath = path.join(__dirname, '../frontend/dist');
