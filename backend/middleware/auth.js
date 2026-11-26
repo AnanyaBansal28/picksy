@@ -4,7 +4,7 @@ const User = require('../models/User');
 const { getIsConnected } = require('../config/db');
 const inMemoryStore = require('../config/inMemoryStore');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'picksy_super_secret_jwt_key_2026';
+const JWT_SECRET = process.env.JWT_SECRET || 'picksy_fallback_secret_2026';
 
 const isMongoReady = () => mongoose.connection.readyState === 1 || getIsConnected();
 

@@ -9,6 +9,7 @@ export const LoginPage = () => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isWrongPassword, setIsWrongPassword] = useState(false);
+  const [isUserNotFound, setIsUserNotFound] = useState(false);
   const [successNotification, setSuccessNotification] = useState('');
   const [loading, setLoading] = useState(false);
   const [isForgotModalOpen, setIsForgotModalOpen] = useState(false);
@@ -22,6 +23,7 @@ export const LoginPage = () => {
     e.preventDefault();
     setError('');
     setIsWrongPassword(false);
+    setIsUserNotFound(false);
     setSuccessNotification('');
     setLoading(true);
 
@@ -32,8 +34,14 @@ export const LoginPage = () => {
       const errorMsg = err.response?.data?.message || err.message || 'Invalid email or password.';
       setError(errorMsg);
 
-      // Check if the error is specifically a wrong password trigger
       if (
+        err.response?.data?.isUserNotFound ||
+        errorMsg.toLowerCase().includes('user not found') ||
+        errorMsg.toLowerCase().includes('please sign up') ||
+        errorMsg.toLowerCase().includes('no account found')
+      ) {
+        setIsUserNotFound(true);
+      } else if (
         err.response?.data?.isWrongPassword ||
         errorMsg.toLowerCase().includes('incorrect password') ||
         errorMsg.toLowerCase().includes('wrong password')
@@ -48,6 +56,7 @@ export const LoginPage = () => {
   const handleFillDemo = async () => {
     setError('');
     setIsWrongPassword(false);
+    setIsUserNotFound(false);
     setSuccessNotification('');
     setEmail('aarav@picksy.io');
     setPassword('picksy123');
@@ -69,6 +78,7 @@ export const LoginPage = () => {
     setPassword('');
     setError('');
     setIsWrongPassword(false);
+    setIsUserNotFound(false);
     setSuccessNotification('Password reset successfully! Please sign in with your new password.');
   };
 
@@ -163,8 +173,25 @@ export const LoginPage = () => {
             </div>
           </div>
 
-          {/* Prominent Wrong Password Alert with 1-Click OTP Trigger */}
-          {isWrongPassword ? (
+          {/* Prominent User Not Found Alert with 1-Click Register Trigger */}
+          {isUserNotFound ? (
+            <div className="p-4 rounded-2xl bg-indigo-50/90 border border-indigo-200/90 space-y-2 animate-in fade-in duration-200">
+              <div className="flex items-center gap-2 text-xs font-bold text-indigo-950">
+                <AlertCircle className="w-4 h-4 text-indigo-600 shrink-0" />
+                <span>No account found for this email</span>
+              </div>
+              <p className="text-[11px] text-indigo-700 leading-relaxed">
+                You haven't signed up with this email address yet. Join Picksy in seconds to unlock smart price comparisons!
+              </p>
+              <Link
+                to="/register"
+                state={{ email }}
+                className="w-full py-2 px-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-xs flex items-center justify-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+              >
+                <span>Create Free Account →</span>
+              </Link>
+            </div>
+          ) : isWrongPassword ? (
             <div className="p-3.5 rounded-xl bg-amber-50/90 border border-amber-200/90 space-y-2 animate-in fade-in duration-200">
               <div className="flex items-center gap-2 text-xs font-bold text-amber-900">
                 <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />

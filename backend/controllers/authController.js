@@ -102,13 +102,26 @@ const loginUser = async (req, res, next) => {
     const cleanEmail = email.trim().toLowerCase();
 
     if (isMongoReady()) {
-      const user = await User.findOne({ email: cleanEmail }).select('+password');
+      let user = await User.findOne({ email: cleanEmail }).select('+password');
+
+      // Demo auto-provision convenience: if demo email is used on a fresh MongoDB Atlas instance
+      if (!user && cleanEmail === 'aarav@picksy.io') {
+        const demoUser = await User.create({
+          name: 'Aarav Sharma',
+          email: 'aarav@picksy.io',
+          password: 'picksy123',
+          role: 'user',
+          totalSavings: 420,
+        });
+        user = await User.findById(demoUser._id).select('+password');
+      }
 
       if (!user) {
         return res.status(401).json({
           success: false,
-          message: 'No account found with this email address.',
+          message: 'User not found, please sign up.',
           isWrongPassword: false,
+          isUserNotFound: true,
         });
       }
 
@@ -118,6 +131,7 @@ const loginUser = async (req, res, next) => {
           success: false,
           message: 'Incorrect password. Please try again.',
           isWrongPassword: true,
+          isUserNotFound: false,
           email: cleanEmail,
         });
       }
@@ -138,13 +152,14 @@ const loginUser = async (req, res, next) => {
       });
     } else {
       // In-Memory Mode
-      const user = await inMemoryStore.users.findOne({ email: cleanEmail });
+      let user = await inMemoryStore.users.findOne({ email: cleanEmail });
 
       if (!user) {
         return res.status(401).json({
           success: false,
-          message: 'No account found with this email address.',
+          message: 'User not found, please sign up.',
           isWrongPassword: false,
+          isUserNotFound: true,
         });
       }
 
@@ -154,6 +169,7 @@ const loginUser = async (req, res, next) => {
           success: false,
           message: 'Incorrect password. Please try again.',
           isWrongPassword: true,
+          isUserNotFound: false,
           email: cleanEmail,
         });
       }

@@ -85,7 +85,9 @@ export const AuthProvider = ({ children }) => {
       throw new Error(res.data?.message || 'Login failed');
     } catch (err) {
       const msg = err.response?.data?.message || err.message || 'Login failed';
-      throw new Error(msg);
+      const customErr = new Error(msg);
+      customErr.response = err.response;
+      throw customErr;
     }
   };
 
@@ -108,7 +110,9 @@ export const AuthProvider = ({ children }) => {
       throw new Error(res.data?.message || 'Registration failed');
     } catch (err) {
       const msg = err.response?.data?.message || err.message || 'Registration failed';
-      throw new Error(msg);
+      const customErr = new Error(msg);
+      customErr.response = err.response;
+      throw customErr;
     }
   };
 

@@ -58,7 +58,19 @@ async function testExpressServer() {
     const wrongData = await wrongLoginRes.json();
     console.log('Wrong Password HTTP status:', wrongLoginRes.status, '| Message:', wrongData.message);
 
-    if (regRes.status === 201 && loginRes.status === 200 && wrongLoginRes.status === 401) {
+    // 5. Test unregistered user
+    const notFoundRes = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'unregistered_person_999@picksy.io',
+        password: 'SomePassword123!',
+      }),
+    });
+    const notFoundData = await notFoundRes.json();
+    console.log('Unregistered User HTTP status:', notFoundRes.status, '| Message:', notFoundData.message);
+
+    if (regRes.status === 201 && loginRes.status === 200 && wrongLoginRes.status === 401 && notFoundData.message === 'User not found, please sign up.') {
       console.log('\n🎉 ALL EXPRESS HTTP AUTH ENDPOINTS VERIFIED!');
     } else {
       throw new Error('Endpoint verification failed');
