@@ -4,8 +4,10 @@ const mongoose = require('mongoose');
 let cached = global.mongoose;
 
 if (!cached) {
-  cached = global.mongoose = { conn: null, promise: null };
+  cached = global.mongoose = { conn: null, promise: null, lastFailedAt: 0 };
 }
+
+const RETRY_COOLDOWN_MS = 15000; // 15 seconds cooldown before retrying a failed connection
 
 /**
  * Connect to MongoDB Atlas using Mongoose with global connection caching for serverless environments
@@ -14,7 +16,6 @@ const connectDB = async () => {
   const uri = process.env.MONGODB_URI || process.env.MONGO_URI;
 
   if (!uri) {
-    console.warn('[Picksy DB] MONGODB_URI not provided. Running in JSON/In-Memory Fallback Mode.');
     return null;
   }
 
@@ -28,10 +29,15 @@ const connectDB = async () => {
     return cached.conn;
   }
 
+  // If a recent connection attempt failed, skip waiting to avoid blocking requests
+  if (Date.now() - (cached.lastFailedAt || 0) < RETRY_COOLDOWN_MS) {
+    return null;
+  }
+
   if (!cached.promise) {
     const opts = {
       bufferCommands: false,
-      serverSelectionTimeoutMS: 5000,
+      serverSelectionTimeoutMS: 2500,
     };
 
     cached.promise = mongoose
@@ -39,6 +45,7 @@ const connectDB = async () => {
       .then(async (mongooseInstance) => {
         console.log('Connected to MongoDB Atlas');
         cached.conn = mongooseInstance.connection || mongoose.connection;
+        cached.lastFailedAt = 0;
 
         // Auto-seed initial catalog into MongoDB Atlas if collection is empty
         try {
@@ -59,6 +66,7 @@ const connectDB = async () => {
       })
       .catch((err) => {
         cached.promise = null;
+        cached.lastFailedAt = Date.now();
         console.warn(
           `[Picksy DB] MongoDB Atlas connection failed (${err.message || 'connection error'}). Using JSON/In-Memory Fallback Mode.`
         );
@@ -70,6 +78,7 @@ const connectDB = async () => {
     cached.conn = await cached.promise;
   } catch (error) {
     cached.promise = null;
+    cached.lastFailedAt = Date.now();
     return null;
   }
 

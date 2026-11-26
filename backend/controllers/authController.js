@@ -1,9 +1,13 @@
+const mongoose = require('mongoose');
 const User = require('../models/User');
 const { signToken } = require('../middleware/auth');
 const { getIsConnected } = require('../config/db');
 const inMemoryStore = require('../config/inMemoryStore');
 const bcrypt = require('bcryptjs');
 const { sendOtpEmail } = require('../utils/emailService');
+
+// Verify active MongoDB Atlas connection state (readyState === 1)
+const isMongoReady = () => mongoose.connection.readyState === 1 || getIsConnected();
 
 // Regex for basic email format validation
 const EMAIL_REGEX = /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/;
@@ -32,7 +36,7 @@ const registerUser = async (req, res, next) => {
 
     const cleanName = name.trim();
 
-    if (getIsConnected()) {
+    if (isMongoReady()) {
       const userExists = await User.findOne({ email: cleanEmail });
       if (userExists) {
         return res.status(400).json({ success: false, message: 'An account with this email already exists.' });
@@ -97,7 +101,7 @@ const loginUser = async (req, res, next) => {
 
     const cleanEmail = email.trim().toLowerCase();
 
-    if (getIsConnected()) {
+    if (isMongoReady()) {
       const user = await User.findOne({ email: cleanEmail }).select('+password');
 
       if (!user) {
@@ -215,7 +219,7 @@ const forgotPassword = async (req, res, next) => {
 
     // Check user existence
     let user = null;
-    if (getIsConnected()) {
+    if (isMongoReady()) {
       user = await User.findOne({ email: cleanEmail });
     } else {
       user = await inMemoryStore.users.findOne({ email: cleanEmail });
@@ -233,7 +237,7 @@ const forgotPassword = async (req, res, next) => {
     const expiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
     // Persist OTP in database or in-memory store
-    if (getIsConnected()) {
+    if (isMongoReady()) {
       user.resetOtp = otp;
       user.resetOtpExpiry = expiry;
       await user.save({ validateBeforeSave: false });
@@ -274,7 +278,7 @@ const verifyOtp = async (req, res, next) => {
     const cleanOtp = otp.toString().trim();
 
     let user = null;
-    if (getIsConnected()) {
+    if (isMongoReady()) {
       user = await User.findOne({ email: cleanEmail }).select('+resetOtp +resetOtpExpiry');
     } else {
       user = await inMemoryStore.users.findOne({ email: cleanEmail });
@@ -342,7 +346,7 @@ const resetPassword = async (req, res, next) => {
     const cleanOtp = otp.toString().trim();
 
     let user = null;
-    if (getIsConnected()) {
+    if (isMongoReady()) {
       user = await User.findOne({ email: cleanEmail }).select('+resetOtp +resetOtpExpiry');
     } else {
       user = await inMemoryStore.users.findOne({ email: cleanEmail });
@@ -375,7 +379,7 @@ const resetPassword = async (req, res, next) => {
     }
 
     // Update password & clear OTP fields
-    if (getIsConnected()) {
+    if (isMongoReady()) {
       user.password = newPassword;
       user.resetOtp = null;
       user.resetOtpExpiry = null;
@@ -405,7 +409,7 @@ const addSavings = async (req, res, next) => {
     const addAmount = Math.max(0, parseInt(amount, 10) || 0);
     const userId = req.user?._id || req.user?.id;
 
-    if (getIsConnected() && userId) {
+    if (isMongoReady() && userId) {
       const user = await User.findById(userId);
       if (user) {
         user.totalSavings = (user.totalSavings || 0) + addAmount;
