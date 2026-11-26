@@ -30,12 +30,27 @@ if (process.env.NODE_ENV !== 'production') {
   app.use(morgan('dev'));
 }
 
+// Connect to MongoDB Atlas before handling API requests (reuses cached connection)
+app.use(async (req, res, next) => {
+  if (req.path && req.path.startsWith('/api')) {
+    try {
+      await connectDB();
+    } catch (err) {
+      // Fallback handled in connectDB
+    }
+  }
+  next();
+});
+
 // Health Check
 app.get('/api/health', (req, res) => {
+  const isMongoLive = require('./config/db').getIsConnected();
   res.json({
     status: 'online',
     app: 'Picksy API',
     tagline: 'Pick Smartly, Shop Wisely.',
+    database: isMongoLive ? 'MongoDB Atlas (Connected)' : 'JSON / In-Memory Fallback Mode',
+    mongoReadyState: require('mongoose').connection.readyState,
     timestamp: new Date().toISOString(),
   });
 });

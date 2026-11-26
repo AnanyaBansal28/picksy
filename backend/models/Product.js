@@ -164,5 +164,5 @@ ProductSchema.virtual('lowestPrice').get(function () {
   return Math.min(...this.platformListings.filter(l => l.inStock).map(l => l.basePrice + l.deliveryFee));
 });
 
-module.exports = mongoose.model('Product', ProductSchema);
+module.exports = mongoose.models.Product || mongoose.model('Product', ProductSchema, 'products');
 
